@@ -6,7 +6,7 @@ platform from the 6.12 CLO kernel onto Android Common Kernel 6.18.
 
 | | |
 |---|---|
-| Version | Linux 6.18.39 (`6.18.39-Suvkernel`) |
+| Version | Linux 6.18.63 (`6.18.63-Suvkernel`) |
 | Base | ACK `android17-6.18`, with `android17-6.18-lts` merged in |
 | Platform | Qualcomm common kernel delta and soc-repo drivers, carried over from 6.12 |
 | Layout | GKI: generic code built in, SoC and board drivers as modules |
