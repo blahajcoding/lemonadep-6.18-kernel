@@ -85,7 +85,7 @@ JOBS=4 ./build.sh kernel   # lower parallelism
 | `BUILD_NUMBER` | `1` | Kernel build number |
 | `BUILD_USER`, `BUILD_HOST` | `build-user`, `build-host` | `/proc/version` identity |
 | `KBUILD_BUILD_TIMESTAMP` | fixed epoch timestamp | Kernel build timestamp; override to reproduce a release timestamp exactly |
-| `MODULES_REF`, `DT_REF` | `main` | Branch cloned when sibling sources are absent |
+| `MODULES_REF`, `DT_REF` | `lemonadep/initial-scaffold` | Branch cloned when sibling sources are absent; tracks the open checkpoint PRs until they merge |
 | `MODSRC`, `DTSRC` | sibling checkout or `$WORK` clone | Explicit module/devicetree source locations |
 | `CLANG_DIR` | downloaded toolchain | Existing Android Clang installation |
 | `PAHOLE` | downloaded binary | Existing Android-compatible pahole |

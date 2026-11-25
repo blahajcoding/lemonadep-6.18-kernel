@@ -18,9 +18,9 @@ BUILD_HOST=${BUILD_HOST:-build-host}
 KBUILD_BUILD_TIMESTAMP=${KBUILD_BUILD_TIMESTAMP:-"Thu Jan  1 00:00:00 UTC 1970"}
 export KBUILD_BUILD_TIMESTAMP
 MODULES_REPO=${MODULES_REPO:-https://github.com/blahajcoding/lemonadep-6.18-modules}
-MODULES_REF=${MODULES_REF:-main}
+MODULES_REF=${MODULES_REF:-lemonadep/initial-scaffold}
 DT_REPO=${DT_REPO:-https://github.com/blahajcoding/lemonadep-6.18-devicetrees}
-DT_REF=${DT_REF:-main}
+DT_REF=${DT_REF:-lemonadep/initial-scaffold}
 
 CLANG_VER=clang-r596125
 CLANG_REPO=https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
@@ -40,12 +40,12 @@ LOGS=$WORK/logs
 # In the repo-manifest workspace the module and devicetree repositories are
 # siblings of this kernel checkout. Use them directly; stand-alone clones fall
 # back to pulling the published repositories into the work directory.
-if [ -z "${MODSRC:-}" ] && [ -d "$KERNEL/../lemonadep-6.18-modules/.git" ]; then
+if [ -z "${MODSRC:-}" ] && [ -e "$KERNEL/../lemonadep-6.18-modules/.git" ]; then
 	MODSRC=$(cd "$KERNEL/../lemonadep-6.18-modules" && pwd)
 else
 	MODSRC=${MODSRC:-$WORK/lemonadep-6.18-modules}
 fi
-if [ -z "${DTSRC:-}" ] && [ -d "$KERNEL/../lemonadep-6.18-devicetrees/.git" ]; then
+if [ -z "${DTSRC:-}" ] && [ -e "$KERNEL/../lemonadep-6.18-devicetrees/.git" ]; then
 	DTSRC=$(cd "$KERNEL/../lemonadep-6.18-devicetrees" && pwd)
 else
 	DTSRC=${DTSRC:-$WORK/lemonadep-6.18-devicetrees}
@@ -227,12 +227,12 @@ collect_modules() {
 	log "Collecting the $(wc -l < "$list") shipped modules"
 	# Vendor builds win over an in-tree module of the same name.
 	while IFS= read -r p; do ko[${p##*/}]=$p; done < <(find "$OUT" -name '*.ko')
-	while IFS= read -r p; do ko[${p##*/}]=$p; done < <(find "$WORK/vb" -name '*.ko')
+	while IFS= read -r p; do ko[${p##*/}]=$p; done < <(find "$WORK/vb" -path "$WORK/vb/rw" -prune -o -name '*.ko' -print)
 	local missing=()
 	while IFS= read -r f; do [ -n "${ko[$f]:-}" ] || missing+=("$f"); done < "$list"
 	((${#missing[@]} == 0)) ||
 		die "${#missing[@]} modules were not built: ${missing[*]}
-  Look for errors in $WORK/vb/*.log and $WORK/vb/rw/*.log"
+  Look for errors in $WORK/vb/*.log"
 
 	rm -rf "$DIST/modules" "$stage"
 	mkdir -p "$DIST/modules" "$stage/lib/modules/$krel"
