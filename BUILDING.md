@@ -17,15 +17,15 @@ yet mean the result is safe or functional on OnePlus 9 Pro hardware; see
 
 ```sh
 # Debian / Ubuntu
-sudo apt install git make bc bison flex python3 perl rsync cpio curl zip unzip \
+sudo apt install git make bc bison flex python3 perl rsync cpio curl zip unzip lz4 \
     build-essential kmod libssl-dev libelf-dev zlib1g-dev
 
 # Arch
-sudo pacman -S --needed git make bc bison flex python perl rsync cpio curl zip unzip \
+sudo pacman -S --needed git make bc bison flex python perl rsync cpio curl zip unzip lz4 \
     base-devel kmod openssl libelf zlib
 
 # Fedora
-sudo dnf install git make bc bison flex python3 perl rsync cpio curl zip unzip \
+sudo dnf install git make bc bison flex python3 perl rsync cpio curl zip unzip lz4 \
     gcc kmod openssl-devel elfutils-libelf-devel zlib-devel
 ```
 
@@ -59,11 +59,12 @@ to keep output at the top level of the workspace.
 
 | Step | What it does |
 |---|---|
-| `tools` | Downloads pinned Clang r596125, Rust 1.88.0, bindgen 0.72.1, pahole, mkdtboimg and AnyKernel3 |
+| `tools` | Downloads pinned Clang r596125, Rust 1.88.0, bindgen 0.72.1, pahole, mkdtboimg, mkbootimg/unpack_bootimg and AnyKernel3 |
 | `kernel` | Configures with `gki_defconfig + vendor/lemonadep.config`, builds `Image` and in-tree modules |
 | `modules` | Builds vendor modules and collects/strips the shipped module set |
 | `dtbo` | Builds devicetree overlays and `dtbo.img` |
 | `zip` | Packs `Image`, modules and `dtbo.img` into an AnyKernel3 zip |
+| `migrate` | Repacks dumped crDroid `boot`/`vendor_boot` images into offline inactive-slot migration images |
 | `clean` | Removes build output while keeping toolchains and source checkouts |
 
 Examples:
@@ -86,6 +87,8 @@ JOBS=4 ./build.sh kernel   # lower parallelism
 | `BUILD_USER`, `BUILD_HOST` | `build-user`, `build-host` | `/proc/version` identity |
 | `KBUILD_BUILD_TIMESTAMP` | fixed epoch timestamp | Kernel build timestamp; override to reproduce a release timestamp exactly |
 | `MODULES_REF`, `DT_REF` | `lemonadep/initial-scaffold` | Branch cloned when sibling sources are absent; tracks the open checkpoint PRs until they merge |
+| `BOOT_IMG`, `VENDOR_BOOT_IMG` | unset, required for `migrate` | Dumped crDroid boot images used as migration input |
+| `EXTRA_BOOTARGS` | empty | Extra kernel arguments appended to the input boot image cmdline by `migrate` |
 | `MODSRC`, `DTSRC` | sibling checkout or `$WORK` clone | Explicit module/devicetree source locations |
 | `CLANG_DIR` | downloaded toolchain | Existing Android Clang installation |
 | `PAHOLE` | downloaded binary | Existing Android-compatible pahole |
@@ -109,6 +112,60 @@ JOBS=4 ./build.sh kernel   # lower parallelism
 
 Do not mix a new `Image` with modules from another kernel sublevel. Rebuild all
 steps after every ACK or configuration change.
+
+
+## Offline crDroid migration images
+
+The AnyKernel zip remains an updater for a ROM that is already running this
+6.18 kernel. For the first migration from crDroid's 5.4 kernel, build offline
+images instead:
+
+```sh
+BOOT_IMG=/path/to/boot.img VENDOR_BOOT_IMG=/path/to/vendor_boot.img ./build.sh migrate
+```
+
+The two input images must be dumps from the same working crDroid slot. The
+step writes `boot.img`, `vendor_boot.img`, `dtbo.img` and `SHA256SUMS.txt` to
+`$WORK/dist/migration`.
+
+The migration repack deliberately preserves the input vendor ramdisks,
+bootconfig, vendor cmdline and boot cmdline. It changes only:
+
+- the boot kernel, replaced with the 6.18 `Image`;
+- the boot ramdisk, which gains `/lib/modules/<kernel-release>` with the 6.18
+  module payload. Android first-stage init prefers this exact-release
+  directory over the old 5.4 module directories in the vendor ramdisk;
+- the vendor_boot DTB, replaced with the concatenated 6.18 Lahaina v1/v2/v2.1
+  base devicetrees.
+
+The 6.18 base bootargs are already in the base devicetree, while
+`androidboot.hardware=qcom` and the other crDroid arguments remain in the
+preserved vendor_boot cmdline. Set `EXTRA_BOOTARGS` only for a focused boot
+experiment; it is appended to the original boot cmdline rather than replacing
+it.
+
+If the input boot ramdisk was wrapped by an old KernelSU loader, the migration
+image unwraps `/init.real` and drops the incompatible old `kernelsu.ko`. Root
+is therefore not preserved in that migration boot. This is intentional: a
+kernel module built for 5.4 cannot be loaded into 6.18.
+
+Flash the output only to the inactive slot, leaving the working slot as the
+fallback, after backing up all three original partitions. For example, if the
+inactive slot is `b`:
+
+```sh
+fastboot flash boot_b boot.img
+fastboot flash vendor_boot_b vendor_boot.img
+fastboot flash dtbo_b dtbo.img
+fastboot --set-active=b
+```
+
+Do not flash both slots. If the device refuses the images because of verified
+boot policy, stop and keep the original slot; migration does not bypass or
+re-sign Android Verified Boot. A successful first migration test should reach
+adb, contain both the 6.18 devicetree bootargs and
+`androidboot.hardware=qcom` in `/proc/cmdline`, report lemonadep in
+`/proc/device-tree/model`, and mount userdata.
 
 ## Safety
 

@@ -29,6 +29,8 @@ BUILDTOOLS_REPO=https://android.googlesource.com/kernel/prebuilts/build-tools
 BUILDTOOLS_SHA=b7de4bc0a9de92dcaed4382c8a3180bb4e2485a4
 LIBUFDT_REPO=https://android.googlesource.com/platform/system/libufdt
 LIBUFDT_SHA=9b70f594cf149c7c73989c78f03d210f8aa1c1f6
+MKBOOTIMG_REPO=https://android.googlesource.com/platform/system/tools/mkbootimg
+MKBOOTIMG_SHA=ca3fa710f8bcbb9d3e6a3929ba3ecc841aca0677
 AK3_REPO=https://github.com/osm0sis/AnyKernel3
 AK3_SHA=41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
 RUST_VER=1.88.0
@@ -136,6 +138,12 @@ step_tools() {
 		curl -sSf "$LIBUFDT_REPO/+/$LIBUFDT_SHA/utils/src/mkdtboimg.py?format=TEXT" |
 			base64 -d > "$TC/mkdtboimg.py.tmp"
 		mv "$TC/mkdtboimg.py.tmp" "$TC/mkdtboimg.py"
+	fi
+
+	if [ ! -f "$TC/mkbootimg/.fetched-$MKBOOTIMG_SHA" ]; then
+		log "Fetching Android mkbootimg/unpack_bootimg tools"
+		sparse_fetch "$TC/mkbootimg" "$MKBOOTIMG_REPO" "$MKBOOTIMG_SHA" \
+			/mkbootimg.py /unpack_bootimg.py /gki/
 	fi
 
 	if [ ! -f "$TC/AnyKernel3/.fetched-$AK3_SHA" ]; then
@@ -308,6 +316,34 @@ step_zip() {
 	sha256sum "$zipfile"
 }
 
+step_migrate() {
+	need_kernel
+	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
+	[ -f "$DIST/dtbo.img" ] || die "no $DIST/dtbo.img, run: ./build.sh dtbo"
+	[ -f "$DIST/vendor-dtbs.img" ] || die "no $DIST/vendor-dtbs.img, run: ./build.sh dtbo"
+	[ -f "$TC/mkbootimg/mkbootimg.py" ] || die "mkbootimg missing, run: ./build.sh tools"
+	[ -n "${BOOT_IMG:-}" ] || die "set BOOT_IMG to a dumped crDroid boot image"
+	[ -n "${VENDOR_BOOT_IMG:-}" ] || die "set VENDOR_BOOT_IMG to a dumped crDroid vendor_boot image"
+	[ -f "$BOOT_IMG" ] || die "BOOT_IMG does not exist: $BOOT_IMG"
+	[ -f "$VENDOR_BOOT_IMG" ] || die "VENDOR_BOOT_IMG does not exist: $VENDOR_BOOT_IMG"
+	for c in gzip lz4 cpio; do command -v "$c" >/dev/null || die "missing host tool for migration images: $c"; done
+	local krel
+	krel=$(kmake -s kernelrelease)
+	log "Building inactive-slot migration images from crDroid boot/vendor_boot"
+	python3 "$KERNEL/lemonadep/migrate618.py" \
+		--tools-dir "$TC/mkbootimg" \
+		--boot "$BOOT_IMG" \
+		--vendor-boot "$VENDOR_BOOT_IMG" \
+		--kernel "$OUT/arch/arm64/boot/Image" \
+		--modules-dir "$DIST/modules" \
+		--release "$krel" \
+		--vendor-dtbs "$DIST/vendor-dtbs.img" \
+		--dtbo "$DIST/dtbo.img" \
+		--work-dir "$WORK/migration-work" \
+		--out-dir "$DIST/migration" \
+		${EXTRA_BOOTARGS:+--extra-bootargs "$EXTRA_BOOTARGS"}
+}
+
 step_clean() {
 	log "Removing build output in $WORK (toolchain and sources stay)"
 	rm -rf "$OUT" "$WORK/vb" "$WORK/out-dt" "$WORK/zip" "$WORK/stage" "$DIST" "$LOGS"
@@ -317,8 +353,8 @@ steps=("$@")
 ((${#steps[@]})) || steps=(tools kernel modules dtbo zip)
 for s in "${steps[@]}"; do
 	case $s in
-	tools | kernel | modules | dtbo | zip | clean) ;;
-	*) die "unknown step '$s' (tools, kernel, modules, dtbo, zip, clean)" ;;
+	tools | kernel | modules | dtbo | zip | migrate | clean) ;;
+	*) die "unknown step '$s' (tools, kernel, modules, dtbo, zip, migrate, clean)" ;;
 	esac
 done
 mkdir -p "$WORK" "$LOGS"

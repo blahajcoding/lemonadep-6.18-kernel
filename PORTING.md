@@ -47,12 +47,17 @@ devicetree replacement.
 
 
 The AnyKernel zip is currently an update mechanism for a ROM already running a
-compatible 6.18 kernel; it is not yet the stock/crDroid-to-6.18 migration
-installer. Replacing the vendor_boot DTBs is necessary but not sufficient for
-that migration: lemonadep still needs a bring-up/first-stage module loader or
-a deliberate vendor-ramdisk `modules.load` policy adapted from redwood, plus
-cmdline validation on hardware. The installer intentionally keeps its 6.18-ROM
-guard until that path exists.
+compatible 6.18 kernel; it intentionally keeps its 6.18-ROM guard. The first
+migration path is instead the offline `./build.sh migrate` flow: it repacks a
+dumped crDroid boot image with the 6.18 kernel and an exact-release
+`/lib/modules/<kernel-release>` first-stage module directory, repacks the
+matching vendor_boot with the 6.18 base DTBs, and emits flashable
+`boot.img`/`vendor_boot.img`/`dtbo.img` for the inactive slot. Android
+first-stage init supplies the module-loading policy, so no custom PID 1 is
+needed for this checkpoint. This packaging path is implemented and host-side
+validated, but it remains untested on hardware; cmdline, userdata mounting,
+remoteproc firmware timing, deferred probes and ramoops still require a real
+inactive-slot boot test.
 
 ## Hardware support matrix
 
