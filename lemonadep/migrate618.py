@@ -299,6 +299,26 @@ def compare_fragments(original_dir, repacked_dir):
     return len(original)
 
 
+def arm64_image_size(path):
+    with open(path, "rb") as f:
+        f.seek(0x10)
+        value = f.read(8)
+    if len(value) != 8:
+        die(f"kernel image is too small for an arm64 header: {path}")
+    return int.from_bytes(value, "little")
+
+
+def memory_budget_report(kernel, boot_ramdisk, vendor_ramdisks):
+    kernel_size = arm64_image_size(kernel)
+    boot_size = boot_ramdisk.stat().st_size
+    vendor_size = sum(path.stat().st_size for path in vendor_ramdisks)
+    dt_slots = 2 * 1024 * 1024
+    total = kernel_size + boot_size + vendor_size + dt_slots
+    print(f"boot memory estimate: kernel image_size {kernel_size}, boot ramdisk {boot_size}, vendor ramdisk {vendor_size}, dt slots {dt_slots}, total {total} bytes")
+    if total > 80 * 1024 * 1024:
+        print("warning: estimated boot memory use exceeds 80 MiB; lemonadep's default 86 MiB bootloader region may not fit it")
+
+
 def check_size(path, limit, label):
     size = path.stat().st_size
     if size > limit:
@@ -316,6 +336,7 @@ def main():
     parser.add_argument("--release", required=True)
     parser.add_argument("--vendor-dtbs", required=True, type=Path)
     parser.add_argument("--dtbo", required=True, type=Path)
+    parser.add_argument("--vendor-dlkm", type=Path)
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--extra-bootargs", default="")
@@ -325,7 +346,10 @@ def main():
     for name in ("mkbootimg.py", "unpack_bootimg.py"):
         if not (tools / name).is_file():
             die(f"missing {tools / name}; run ./build.sh tools")
-    for path in (args.boot, args.vendor_boot, args.kernel, args.vendor_dtbs, args.dtbo):
+    input_paths = [args.boot, args.vendor_boot, args.kernel, args.vendor_dtbs, args.dtbo]
+    if args.vendor_dlkm:
+        input_paths.append(args.vendor_dlkm)
+    for path in input_paths:
         if not path.is_file():
             die(f"input does not exist: {path}")
     if not args.modules_dir.is_dir():
@@ -362,6 +386,8 @@ def main():
     create_cpio(ramdisk_root, new_cpio)
     new_compressed = work / "ramdisk-new"
     compress_ramdisk(new_cpio, new_compressed, ramdisk_kind)
+
+    memory_budget_report(args.kernel, new_compressed, vendor_ramdisk_fragments(vendor_unpack))
 
     boot_out = work / "boot.img"
     vendor_out = work / "vendor_boot.img"

@@ -160,8 +160,23 @@ is therefore not preserved in that migration boot. This is intentional: a
 kernel module built for 5.4 cannot be loaded into 6.18.
 
 Flash the output only to the inactive slot, leaving the working slot as the
-fallback, after backing up all three original partitions. For example, if the
-inactive slot is `b`:
+fallback, after backing up all three original partitions. Because crDroid uses
+Virtual A/B, first confirm that the inactive slot actually has its logical
+partitions: `fastboot getvar all` should list the relevant `is-logical:*_b`
+entries when slot `b` is the target, and `vbmeta_b` should report disabled
+verification flags. If those logical partitions are missing, restore the same
+crDroid build to slot b first instead of flashing only these three images.
+
+For the first diagnostic attempt, use
+`EXTRA_BOOTARGS="androidboot.first_stage_console=2"` when the crDroid build is
+`ro.debuggable=1`; otherwise the option is ignored. A first-stage module failure
+is otherwise difficult to distinguish from a bootloader memory or partition
+failure. `migrate618.py` prints the kernel arm64 `image_size`, compressed boot
+and vendor ramdisk sizes, two 1 MiB DT slots and their total; treat a total
+above 80 MiB as a warning because the default bootloader memory region is about
+86 MiB.
+
+For example, if the inactive slot is `b`:
 
 ```sh
 fastboot flash boot_b boot.img
