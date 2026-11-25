@@ -268,8 +268,12 @@ step_dtbo() {
 	R=$WORK CLANG=$CLANG_DIR/bin bash "$MODSRC/bringup/build-dt.sh" > "$LOGS/dt.log" 2>&1 ||
 		{ cat "$LOGS/dt.log" >&2; die "devicetree build failed"; }
 	mkdir -p "$DIST"
-	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" --page_size=4096 "$WORK/out-dt/lemonadep-overlay.dtbo" "$WORK/out-dt/lemonadep-t0-overlay.dtbo"
+	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" --page_size=4096 "$WORK/out-dt/lemonadep-t0-overlay.dtbo" "$WORK/out-dt/lemonadep-overlay.dtbo"
 	cp "$WORK/out-dt/lahaina-v2.1.dtb" "$DIST/lahaina-v2.1.dtb"
+	# vendor_boot carries all three Lahaina revision DTBs concatenated in
+	# ascending order, matching stock; the bootloader picks one by msm-id.
+	cat "$WORK/out-dt/lahaina.dtb" "$WORK/out-dt/lahaina-v2.dtb" \
+		"$WORK/out-dt/lahaina-v2.1.dtb" > "$DIST/vendor-dtbs.img"
 	# Pad to the stock lemonadep/OPLUS dtbo page size.
 	truncate -s %4096 "$DIST/dtbo.img"
 	echo "$DIST/dtbo.img"
@@ -294,7 +298,9 @@ step_zip() {
 		"$TC/AnyKernel3/" "$z/"
 	sed -e "s/@KREL@/$krel/g" -e "s/@KVER@/$kver/g" -e "s/@DATE@/$date/g" \
 		"$KERNEL/lemonadep/anykernel.sh" > "$z/anykernel.sh"
-	cp "$DIST/Image" "$DIST/dtbo.img" "$DIST/lahaina-v2.1.dtb" "$z/"
+	cp "$DIST/Image" "$DIST/dtbo.img" "$z/"
+	cp "$DIST/vendor-dtbs.img" "$z/dtb"
+	cp "$DIST/lahaina-v2.1.dtb" "$z/"
 	cp -r "$DIST/modules" "$z/modules618"
 	rm -f "$zipfile"
 	(cd "$z" && zip -qr9 "$zipfile" .)

@@ -52,4 +52,10 @@ flash_boot;
 ui_print "- Writing dtbo";
 flash_generic dtbo;
 
+ui_print "- Replacing the vendor_boot base DTBs";
+BLOCK=vendor_boot;
+reset_ak;
+dump_boot;
+write_boot;
+
 ui_print " " "Done. Root (KernelSU/Magisk) in this boot is kept.";

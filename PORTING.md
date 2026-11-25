@@ -28,11 +28,28 @@ core-kernel modifications without a demonstrated userspace or hardware need.
    vendor_boot/dtbo packaging, SELinux compatibility, deep sleep, thermal and
    charging validation.
 
+## Devicetree packaging contract
+
+Stock lemonadep `vendor_boot` contains three concatenated Lahaina base FDTs
+(v1, v2 and v2.1), selected by `qcom,msm-id`. The stock `dtbo` contains four
+OPLUS entries; lemonadep uses the T0 entry first and the production entry
+second. Those overlays do **not** carry `qcom,msm-id`; the base FDT supplies
+SoC revision selection. The 6.18 packaging therefore mirrors the same split:
+`dtbo.img` is T0-first, while the zip carries concatenated v1/v2/v2.1 base
+FDTs as `dtb` and patches them into the existing `vendor_boot` at install time.
+
+The first lemonadep overlay checkpoint now ports the stock critical memory
+reservations (`removed_mem` through `0xe1600000`, splash/dfps memory, OPLUS
+boot-log/param memory and ramoops) plus stock USB/PCIe board fixes. Display,
+touch, cnss/QCA6490, charging, audio, camera, sensors, fingerprint, NFC and
+pinctrl sleep-state coverage remain incomplete; this is not yet a full stock
+devicetree replacement.
+
 ## Hardware support matrix
 
 | Block | 5.4 lemonadep source of truth | 6.18 plan | Current state |
 |---|---|---|---|
-| Boot, UFS, clocks, pinctrl, interconnect | Qualcomm Lahaina QGKI | Reuse redwood's 6.18 Lahaina platform and SM8350 clock drivers | Inherited; untested on lemonadep |
+| Boot, UFS, clocks, pinctrl, interconnect | Qualcomm Lahaina QGKI | Reuse redwood's 6.18 Lahaina platform and SM8350 clock drivers | Inherited; lemonadep memory map/USB/PCIe scaffold ported; untested on hardware |
 | Display/panel | `techpack/display`, `dsi-panel-samsung-amb670yf01*` and OPLUS 20031 panel DT | Reuse redwood's 6.18 SDE/DRM port; port lemonadep panel timing/OPLUS additions | Deferred; redwood panel must not be treated as lemonadep support |
 | Touch | `drivers/input/touchscreen/oplus_touchscreen_v2`, Synaptics S3908 | Port OPLUS touch framework and Synaptics TCM-oncell driver | Deferred; inherited redwood Goodix/Focaltech drivers are not a replacement |
 | Fingerprint | `drivers/input/oplus_fp_drivers`, Goodix optical G3S | Port OPLUS fingerprint common/Goodix optical stack with display/UDFPS coordination | Deferred |

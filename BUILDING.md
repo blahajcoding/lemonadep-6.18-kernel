@@ -96,9 +96,13 @@ JOBS=4 ./build.sh kernel   # lower parallelism
 
 - `Image`
 - `dtbo.img`
+- `vendor-dtbs.img`, the concatenated Lahaina v1/v2/v2.1 base devicetrees in
+  the same order as stock `vendor_boot`. The zip carries it as `dtb` and the
+  AnyKernel script repacks the existing `vendor_boot` with it while preserving
+  that image's vendor ramdisk and cmdline.
 - `lahaina-v2.1.dtb`, the intermediate merged base devicetree used for
   debugging/devicetree inspection. It is also carried in the zip for
-  convenience, but the current installer does not flash it.
+  convenience, but is not flashed directly.
 - `modules/` with stripped `.ko` files, `modules.load`, `modules.blocklist`,
   `modules.options` and depmod metadata
 - `LemonadepKernel-<version>-lemonadep-<date>.zip`
@@ -110,4 +114,6 @@ steps after every ACK or configuration change.
 
 Do not flash the current scaffold to a daily-use phone. Before hardware tests,
 confirm the port status in [PORTING.md](PORTING.md), keep fastboot access, and
-back up the working `boot`, `vendor_boot` and `dtbo` partitions.
+back up the working `boot`, `vendor_boot` and `dtbo` partitions. The installer
+now rewrites all three partitions; the `vendor_boot` rewrite is required because
+the stock 5.4 base DTBs do not match the 6.18 overlay/module ABI.
