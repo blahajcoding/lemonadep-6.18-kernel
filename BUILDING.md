@@ -166,6 +166,9 @@ partitions: `fastboot getvar all` should list the relevant `is-logical:*_b`
 entries when slot `b` is the target, and `vbmeta_b` should report disabled
 verification flags. If those logical partitions are missing, restore the same
 crDroid build to slot b first instead of flashing only these three images.
+Also check `fastboot getvar snapshot-update-status`; if it is not `none`, boot
+the working slot once and let the Virtual A/B merge finish before flashing a
+logical partition in fastbootd.
 
 For the first diagnostic attempt, use
 `EXTRA_BOOTARGS="androidboot.first_stage_console=2"` when the crDroid build is
