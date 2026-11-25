@@ -32,6 +32,7 @@ struct cma_heap {
 	/* max_align is in units of page_order, similar to CONFIG_CMA_ALIGNMENT */
 	u32 max_align;
 	bool uncached;
+	size_t size;
 };
 
 static void cma_heap_free(struct qcom_sg_buffer *buffer)
@@ -67,6 +68,10 @@ struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
 
 	cma_heap = dma_heap_get_drvdata(heap);
 
+	/* can never fit, and every failed cma_alloc() dumps the area map */
+	if (cma_heap->size && size > cma_heap->size)
+		return ERR_PTR(-ENOMEM);
+
 	if (align > cma_heap->max_align)
 		align = cma_heap->max_align;
 
@@ -80,9 +85,12 @@ struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
 	helper_buffer->uncached = cma_heap->uncached;
 	helper_buffer->free = cma_heap_free;
 
-	cma_pages = cma_alloc(cma_heap->cma, nr_pages, align, false);
-	if (!cma_pages)
+	cma_pages = cma_alloc(cma_heap->cma, nr_pages, align, true);
+	if (!cma_pages) {
+		pr_warn_ratelimited("%s: CMA allocation of %zu bytes failed\n",
+				    dma_heap_get_name(heap), size);
 		goto free_buf;
+	}
 
 	if (PageHighMem(cma_pages)) {
 		unsigned long nr_clear_pages = nr_pages;
@@ -173,6 +181,7 @@ static int __add_cma_heap(struct platform_heap *heap_data, void *data)
 	if (heap_data->max_align)
 		cma_heap->max_align = heap_data->max_align;
 	cma_heap->uncached = heap_data->is_uncached;
+	cma_heap->size = heap_data->size;
 
 	exp_info.name = heap_data->name;
 	exp_info.ops = &cma_heap_ops;
