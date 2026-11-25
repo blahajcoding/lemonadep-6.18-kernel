@@ -18,7 +18,7 @@ yet mean the result is safe or functional on OnePlus 9 Pro hardware; see
 ```sh
 # Debian / Ubuntu
 sudo apt install git make bc bison flex python3 perl rsync cpio curl zip unzip lz4 \
-    build-essential kmod e2fsprogs libssl-dev libelf-dev zlib1g-dev
+    build-essential kmod erofs-utils libssl-dev libelf-dev zlib1g-dev
 
 # Arch
 sudo pacman -S --needed git make bc bison flex python perl rsync cpio curl zip unzip lz4 \
@@ -62,7 +62,7 @@ to keep output at the top level of the workspace.
 | `tools` | Downloads pinned Clang r596125, Rust 1.88.0, bindgen 0.72.1, pahole, mkdtboimg, mkbootimg/unpack_bootimg and AnyKernel3 |
 | `kernel` | Configures with `gki_defconfig + vendor/lemonadep.config`, builds `Image` and in-tree modules |
 | `modules` | Builds vendor modules and collects/strips the shipped module set |
-| `vendor_dlkm` | Builds the small ext4 `vendor_dlkm.img` containing the deferred CNSS/qcacld WLAN modules |
+| `vendor_dlkm` | Builds the small EROFS `vendor_dlkm.img` containing the deferred CNSS/qcacld WLAN modules |
 | `dtbo` | Builds devicetree overlays and `dtbo.img` |
 | `zip` | Packs `Image`, modules, `vendor_dlkm.img` and `dtbo.img` into an AnyKernel3 zip |
 | `migrate` | Repacks dumped crDroid `boot`/`vendor_boot` images into offline inactive-slot migration images |
@@ -109,10 +109,10 @@ JOBS=4 ./build.sh kernel   # lower parallelism
   convenience, but is not flashed directly.
 - `modules/` with stripped `.ko` files, `modules.load`, `modules.blocklist`,
   `modules.options` and depmod metadata
-- `vendor_dlkm.img`, an ext4 image whose `lib/modules` directory contains the
+- `vendor_dlkm.img`, an EROFS image whose `lib/modules` directory contains the
   ten deferred CNSS/qcacld modules, dependency-ordered `modules.load`,
   `/vendor/lib/modules/`-prefixed `modules.dep`, aliases and the qcacld
-  blocklist. crDroid mounts `vendor_dlkm` as ext4 at `/vendor_dlkm`; its
+  blocklist. crDroid mounts `vendor_dlkm` as EROFS at `/vendor_dlkm`; its
   `/vendor/lib/modules` path then gives second-stage init the modules that
   disappear with the first-stage boot ramdisk.
 - `LemonadepKernel-<version>-lemonadep-<date>.zip`
@@ -160,7 +160,7 @@ is therefore not preserved in that migration boot. This is intentional: a
 kernel module built for 5.4 cannot be loaded into 6.18.
 
 Flash the output only to the inactive slot, leaving the working slot as the
-fallback, after backing up all three original partitions. Because crDroid uses
+fallback, after backing up all three original partitions and slot a's `vendor_dlkm`. Because crDroid uses
 Virtual A/B, first confirm that the inactive slot actually has its logical
 partitions: `fastboot getvar all` should list the relevant `is-logical:*_b`
 entries when slot `b` is the target, and `vbmeta_b` should report disabled
@@ -179,10 +179,12 @@ above 80 MiB as a warning because the default bootloader memory region is about
 For example, if the inactive slot is `b`:
 
 ```sh
+fastboot reboot fastboot
+fastboot flash vendor_dlkm_b vendor_dlkm.img
+fastboot reboot bootloader
 fastboot flash boot_b boot.img
 fastboot flash vendor_boot_b vendor_boot.img
 fastboot flash dtbo_b dtbo.img
-fastboot flash vendor_dlkm vendor_dlkm.img
 fastboot --set-active=b
 ```
 

@@ -152,7 +152,8 @@ def main():
                 softdeps.append(line + "\n")
         (modroot / "modules.softdep").write_text("".join(softdeps))
 
-    (modroot / "modules.load").write_text("".join(f"{x}\n" for x in order))
+    load_order = [x for x in order if x != "qca_cld3_wlan.ko"]
+    (modroot / "modules.load").write_text("".join(f"{x}\n" for x in load_order))
     blocklist = src / "modules.blocklist"
     shutil.copy2(blocklist, modroot / "modules.blocklist") if blocklist.is_file() else (modroot / "modules.blocklist").write_text("")
     options = src / "modules.options"
@@ -164,25 +165,23 @@ def main():
     os.chmod(root / "lib", 0o755)
     os.chmod(modroot, 0o755)
 
-    tar_path = work / "vendor-dlkm.tar"
-    write_tar(root, tar_path)
+    contexts = work / "file_contexts"
+    contexts.write_text(
+        "/(vendor_dlkm|vendor/vendor_dlkm|system/vendor/vendor_dlkm)(/.*)? "
+        "u:object_r:vendor_file:s0\n"
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.unlink(missing_ok=True)
-    with args.output.open("wb") as f:
-        f.truncate(args.size_mib * 1024 * 1024)
     subprocess.run(
         [
-            "mke2fs",
-            "-q",
-            "-t",
-            "ext4",
-            "-b",
-            "4096",
-            "-m",
-            "0",
-            "-d",
-            str(tar_path),
+            "mkfs.erofs",
+            "-zlz4hc",
+            "-T0",
+            "--all-root",
+            "--mount-point=/vendor_dlkm",
+            f"--file-contexts={contexts}",
             str(args.output),
+            str(root),
         ],
         check=True,
     )
