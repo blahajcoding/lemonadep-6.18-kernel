@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the redwood 6.18 kernel, its vendor modules, dtbo.img and a
+# Build the lemonadep 6.18 kernel, its vendor modules, dtbo.img and a
 # flashable AnyKernel3 zip. See BUILDING.md.
 #
 #   ./build.sh                 everything: tools kernel modules dtbo zip
@@ -9,15 +9,15 @@
 set -euo pipefail
 
 KERNEL=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-WORK=${WORK:-$(dirname "$KERNEL")/redwood-618-build}
+WORK=${WORK:-$(dirname "$KERNEL")/lemonadep-618-build}
 TC=${TC:-$WORK/toolchain}
 export JOBS=${JOBS:-$(nproc)}
 BUILD_NUMBER=${BUILD_NUMBER:-1}
 BUILD_USER=${BUILD_USER:-build-user}
 BUILD_HOST=${BUILD_HOST:-build-host}
-MODULES_REPO=${MODULES_REPO:-https://github.com/suvojeet-sengupta/redwood-6.18-modules}
+MODULES_REPO=${MODULES_REPO:-https://github.com/blahajcoding/lemonadep-6.18-modules}
 MODULES_REF=${MODULES_REF:-main}
-DT_REPO=${DT_REPO:-https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees}
+DT_REPO=${DT_REPO:-https://github.com/blahajcoding/lemonadep-6.18-devicetrees}
 DT_REF=${DT_REF:-main}
 
 CLANG_VER=clang-r596125
@@ -35,8 +35,19 @@ BINDGEN_VER=0.72.1
 OUT=$WORK/out
 DIST=$WORK/dist
 LOGS=$WORK/logs
-MODSRC=$WORK/redwood-6.18-modules
-DTSRC=$WORK/redwood-6.18-devicetrees
+# In the repo-manifest workspace the module and devicetree repositories are
+# siblings of this kernel checkout. Use them directly; stand-alone clones fall
+# back to pulling the published repositories into the work directory.
+if [ -z "${MODSRC:-}" ] && [ -d "$KERNEL/../lemonadep-6.18-modules/.git" ]; then
+	MODSRC=$(cd "$KERNEL/../lemonadep-6.18-modules" && pwd)
+else
+	MODSRC=${MODSRC:-$WORK/lemonadep-6.18-modules}
+fi
+if [ -z "${DTSRC:-}" ] && [ -d "$KERNEL/../lemonadep-6.18-devicetrees/.git" ]; then
+	DTSRC=$(cd "$KERNEL/../lemonadep-6.18-devicetrees" && pwd)
+else
+	DTSRC=${DTSRC:-$WORK/lemonadep-6.18-devicetrees}
+fi
 CLANG_DIR=${CLANG_DIR:-$TC/clang/$CLANG_VER}
 PAHOLE=${PAHOLE:-$TC/pahole}
 export RUSTUP_HOME=$TC/rustup CARGO_HOME=$TC/cargo RUSTUP_TOOLCHAIN=$RUST_VER
@@ -153,8 +164,8 @@ need_kernel() {
 step_kernel() {
 	need_tools
 	mkdir -p "$OUT" "$LOGS"
-	log "Configuring: gki_defconfig + vendor/redwood.config"
-	kmake -s gki_defconfig vendor/redwood.config
+	log "Configuring: gki_defconfig + vendor/lemonadep.config"
+	kmake -s gki_defconfig vendor/lemonadep.config
 	grep -q '^CONFIG_RUST=y' "$OUT/.config" ||
 		die "Kconfig turned CONFIG_RUST off (no ashmem, no Rust Binder). Check: make O=$OUT LLVM=1 rustavailable"
 	log "Building Image and in-tree modules with $JOBS jobs (log: $LOGS/kernel.log)"
@@ -162,13 +173,21 @@ step_kernel() {
 	log "Kernel $(kmake -s kernelrelease) built: $OUT/arch/arm64/boot/Image"
 }
 
-# The module build scripts in redwood-6.18-modules/bringup expect
-# $R/redwood-6.18-kernel, $R/out and $R/redwood-6.18-modules.
-link_kernel() {
-	local l=$WORK/redwood-6.18-kernel
-	[ "$(readlink -f "$l")" = "$KERNEL" ] && return
-	[ -e "$l" ] && [ ! -L "$l" ] && die "$l exists and is not this kernel tree"
-	ln -sfn "$KERNEL" "$l"
+# The module and devicetree build scripts expect the three source trees below
+# $R. In a repo-manifest checkout they may live next to the kernel instead, so
+# link them into the work directory without copying or modifying them.
+link_source() {
+	local target=$1 name=$2
+	local l=$WORK/$name
+	[ "$(readlink -f "$target")" = "$(readlink -f "$l")" ] && return
+	[ -e "$l" ] && [ ! -L "$l" ] && die "$l exists and is not $target"
+	ln -sfn "$target" "$l"
+}
+
+link_sources() {
+	link_source "$KERNEL" lemonadep-6.18-kernel
+	[ ! -d "$MODSRC" ] || link_source "$MODSRC" lemonadep-6.18-modules
+	[ ! -d "$DTSRC" ] || link_source "$DTSRC" lemonadep-6.18-devicetrees
 }
 
 get_repo() {
@@ -184,12 +203,15 @@ get_repo() {
 step_modules() {
 	need_tools
 	need_kernel
-	link_kernel
+	link_sources
 	log "Vendor module sources"
 	get_repo "$MODSRC" "$MODULES_REPO" "$MODULES_REF"
 	local b=$MODSRC/bringup s
 	export R=$WORK CLANG=$CLANG_DIR/bin PAHOLE
-	for s in vendor618 data618 wlan618 misc618 redwood618; do
+	# board618 is deliberately outside the default build. Its inherited
+	# redwood board drivers need per-driver lemonadep/OnePlus userspace audit;
+	# build it explicitly only when a replacement driver is being ported.
+	for s in vendor618 data618 wlan618 misc618; do
 		log "build-$s.sh (logs in $WORK/vb)"
 		bash "$b/build-$s.sh"
 	done
@@ -197,7 +219,7 @@ step_modules() {
 }
 
 collect_modules() {
-	local list=$KERNEL/redwood/modules.list stage=$WORK/stage krel f p n=0
+	local list=$KERNEL/lemonadep/modules.list stage=$WORK/stage krel f p n=0
 	local -A ko=()
 	krel=$(kmake -s kernelrelease)
 	log "Collecting the $(wc -l < "$list") shipped modules"
@@ -216,7 +238,7 @@ collect_modules() {
 		llvm-strip --strip-debug -o "$DIST/modules/$f" "${ko[$f]}"
 		n=$((n + 1))
 	done < "$list"
-	cp "$KERNEL/redwood/modules.load" "$DIST/modules/"
+	cp "$KERNEL/lemonadep/modules.load" "$DIST/modules/"
 	cp "$DIST/modules/"*.ko "$stage/lib/modules/$krel/"
 	local depmod
 	depmod=$(command -v depmod || echo /sbin/depmod)
@@ -237,16 +259,16 @@ collect_modules() {
 step_dtbo() {
 	need_tools
 	need_kernel
-	link_kernel
+	link_sources
 	log "Building dtbo.img"
 	get_repo "$DTSRC" "$DT_REPO" "$DT_REF"
 	get_repo "$MODSRC" "$MODULES_REPO" "$MODULES_REF"
 	R=$WORK CLANG=$CLANG_DIR/bin bash "$MODSRC/bringup/build-dt.sh" > "$LOGS/dt.log" 2>&1 ||
 		{ cat "$LOGS/dt.log" >&2; die "devicetree build failed"; }
 	mkdir -p "$DIST"
-	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" "$WORK/out-dt/redwood-overlay.dtbo"
-	# Padded to 2 KiB like the prebuilt, so the two compare byte for byte
-	truncate -s %2048 "$DIST/dtbo.img"
+	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" --page_size=4096 "$WORK/out-dt/lemonadep-overlay.dtbo" "$WORK/out-dt/lemonadep-t0-overlay.dtbo"
+	# Pad to the stock lemonadep/OPLUS dtbo page size.
+	truncate -s %4096 "$DIST/dtbo.img"
 	echo "$DIST/dtbo.img"
 }
 
@@ -259,7 +281,7 @@ step_zip() {
 	krel=$(kmake -s kernelrelease)
 	kver=$(kmake -s kernelversion)
 	date=$(date +%Y%m%d-%H%M%S)
-	zipfile=$DIST/Suvkernel-$kver-redwood-$date.zip
+	zipfile=$DIST/LemonadepKernel-$kver-lemonadep-$date.zip
 	log "Packing $zipfile"
 	cp "$OUT/arch/arm64/boot/Image" "$DIST/Image"
 	rm -rf "$z"
@@ -268,7 +290,7 @@ step_zip() {
 		--exclude=anykernel.sh --exclude=modules --exclude=patch --exclude=ramdisk \
 		"$TC/AnyKernel3/" "$z/"
 	sed -e "s/@KREL@/$krel/g" -e "s/@KVER@/$kver/g" -e "s/@DATE@/$date/g" \
-		"$KERNEL/redwood/anykernel.sh" > "$z/anykernel.sh"
+		"$KERNEL/lemonadep/anykernel.sh" > "$z/anykernel.sh"
 	cp "$DIST/Image" "$DIST/dtbo.img" "$z/"
 	cp -r "$DIST/modules" "$z/modules618"
 	rm -f "$zipfile"
