@@ -252,7 +252,7 @@ collect_modules() {
 	for f in modules.dep modules.alias modules.softdep; do
 		cp "$stage/lib/modules/$krel/$f" "$DIST/modules/"
 	done
-	: > "$DIST/modules/modules.blocklist"
+	cp "$KERNEL/lemonadep/modules.blocklist" "$DIST/modules/modules.blocklist"
 	: > "$DIST/modules/modules.options"
 	rm -rf "$stage"
 	echo "$n modules in $DIST/modules"

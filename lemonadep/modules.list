@@ -272,7 +272,7 @@ wcd938x_slave_dlkm.ko
 wcd9xxx_dlkm.ko
 wcd_core_dlkm.ko
 wcd_usbss_i2c.ko
-wlan.ko
+qca_cld3_wlan.ko
 wlan_firmware_service.ko
 wsa883x_dlkm.ko
 wsa_macro_dlkm.ko

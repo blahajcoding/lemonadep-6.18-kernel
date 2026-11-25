@@ -45,6 +45,15 @@ touch, cnss/QCA6490, charging, audio, camera, sensors, fingerprint, NFC and
 pinctrl sleep-state coverage remain incomplete; this is not yet a full stock
 devicetree replacement.
 
+
+The AnyKernel zip is currently an update mechanism for a ROM already running a
+compatible 6.18 kernel; it is not yet the stock/crDroid-to-6.18 migration
+installer. Replacing the vendor_boot DTBs is necessary but not sufficient for
+that migration: lemonadep still needs a bring-up/first-stage module loader or
+a deliberate vendor-ramdisk `modules.load` policy adapted from redwood, plus
+cmdline validation on hardware. The installer intentionally keeps its 6.18-ROM
+guard until that path exists.
+
 ## Hardware support matrix
 
 | Block | 5.4 lemonadep source of truth | 6.18 plan | Current state |
@@ -55,7 +64,7 @@ devicetree replacement.
 | Fingerprint | `drivers/input/oplus_fp_drivers`, Goodix optical G3S | Port OPLUS fingerprint common/Goodix optical stack with display/UDFPS coordination | Deferred |
 | Audio | Lahaina ASoC techpack, WCD938x, dual NXP TFA98xx | Reuse 6.18 Qualcomm audio platform; port lemonadep machine/amp configuration | Deferred; redwood AW88261 configuration is not correct for lemonadep |
 | Camera | Spectra `camera.ko`, OPLUS sensor/OIS/EEPROM adaptations | Reuse 6.18 Spectra base; port lemonadep camera DT and OPLUS sensor logic | Deferred; not shipped because the inherited flash/WLED providers depend on the wrong charger implementation |
-| WLAN/Bluetooth | QCA6490, qcacld-3.0, CNSS, btpower/bt_fm_slim | Reuse redwood's Lahaina-profile 6.18 WLAN/CNSS port; validate QCA6490 firmware and board DT | Inherited platform work; lemonadep validation pending |
+| WLAN/Bluetooth | QCA6490, qcacld-3.0, CNSS, btpower/bt_fm_slim | Reuse redwood's Lahaina-profile 6.18 WLAN/CNSS port; port `qcom,cnss-qca6490` DT, then load `qca_cld3_wlan` after firmware mounts as crDroid does | CNSS/qcacld compile but are not first-stage loaded because the lemonadep cnss DT is still missing; btpower/bt_fm_slim deferred |
 | Mobile data | IPA, datarmnet, rmnet offload/SHS | Reuse redwood's 6.18 data stack; adapt subsystem compatibility paths to Lahaina | Inherited platform work; validation pending |
 | Video | downstream `msm-vidc` | Reuse redwood's 6.18 msm-vidc port and validate SM8350 firmware/UAPI | Inherited platform work; validation pending |
 | Charging | `drivers/power/oplus_chg`, MP2650, RK826/OP10 Warp, HL7227, P9415 wireless | Port OPLUS charging stack only after basic power-supply/thermal safety works | Deferred; inherited Qualcomm charger module is redwood/Xiaomi-policy code and is not shipped |
@@ -83,6 +92,8 @@ support. They must be removed or replaced before a hardware release:
   the flash/WLED interfaces and is therefore absent until the power chain is
   replaced with lemonadep hardware support.
 - redwood `nxp-nci` NFC glue, which is not lemonadep SN100T/NQ-NCI support
+- MTP `wsa883x`/machine audio remains reference-only even though currently shipped for dependency closure; lemonadep uses dual NXP TFA98xx amps and the MTP machine/amp pair must be removed together in the audio checkpoint
+- first-stage CNSS/qcacld loading: `qca_cld3_wlan.ko` is shipped and blocklisted but must be modprobed only after firmware mounts and the lemonadep `qcom,cnss-qca6490` node exists
 - redwood splash-console defaults (disabled until lemonadep framebuffer base,
   stride and 1440x3216 panel geometry are validated)
 - redwood vendor-compatibility shims (`subsys_compat`, `ioncompat`, `usbrole`,

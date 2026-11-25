@@ -224,11 +224,6 @@ bolero_cdc_dlkm.ko
 pci-msm-drv.ko
 mhi.ko
 qrtr-mhi.ko
-cnss_utils.ko
-cnss_prealloc.ko
-cnss_nl.ko
-cnss_plat_ipc_qmi_svc.ko
-cnss2.ko
 gsim.ko
 hdcp_qseecom_dlkm.ko
 hdmi_dlkm.ko
@@ -271,7 +266,5 @@ wcd938x_dlkm.ko
 wcd938x_slave_dlkm.ko
 wcd9xxx_dlkm.ko
 wcd_core_dlkm.ko
-wlan_firmware_service.ko
-wlan.ko
 wsa883x_dlkm.ko
 wsa_macro_dlkm.ko
