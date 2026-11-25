@@ -11,6 +11,7 @@ do.systemless=0
 do.cleanup=1
 do.cleanuponabort=0
 device.name1=lemonadep
+device.name2=OnePlus9Pro
 supported.versions=
 supported.patchlevels=
 '; }

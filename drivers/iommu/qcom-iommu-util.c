@@ -442,6 +442,25 @@ int qcom_iommu_set_fault_model(struct iommu_domain *domain, int fault_model)
 }
 EXPORT_SYMBOL(qcom_iommu_set_fault_model);
 
+void qcom_iommu_set_fault_handler(struct iommu_domain *domain,
+				  iommu_fault_handler_t handler, void *token)
+{
+	iommu_set_fault_handler(domain, handler, token);
+}
+EXPORT_SYMBOL(qcom_iommu_set_fault_handler);
+
+void qcom_iommu_set_fault_handler_irq(struct iommu_domain *domain,
+				      fault_handler_irq_t handler_irq, void *token)
+{
+	struct qcom_iommu_ops *ops = to_qcom_iommu_ops(domain->ops);
+
+	if (!ops || unlikely(ops->set_fault_handler_irq == NULL))
+		return;
+
+	ops->set_fault_handler_irq(domain, handler_irq, token);
+}
+EXPORT_SYMBOL(qcom_iommu_set_fault_handler_irq);
+
 int qcom_iommu_enable_s1_translation(struct iommu_domain *domain)
 {
 	struct qcom_iommu_ops *ops = to_qcom_iommu_ops(domain->ops);

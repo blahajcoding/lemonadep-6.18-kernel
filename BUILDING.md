@@ -84,6 +84,7 @@ JOBS=4 ./build.sh kernel   # lower parallelism
 | `JOBS` | CPU count | Parallel build jobs |
 | `BUILD_NUMBER` | `1` | Kernel build number |
 | `BUILD_USER`, `BUILD_HOST` | `build-user`, `build-host` | `/proc/version` identity |
+| `KBUILD_BUILD_TIMESTAMP` | fixed epoch timestamp | Kernel build timestamp; override to reproduce a release timestamp exactly |
 | `MODULES_REF`, `DT_REF` | `main` | Branch cloned when sibling sources are absent |
 | `MODSRC`, `DTSRC` | sibling checkout or `$WORK` clone | Explicit module/devicetree source locations |
 | `CLANG_DIR` | downloaded toolchain | Existing Android Clang installation |
@@ -95,6 +96,9 @@ JOBS=4 ./build.sh kernel   # lower parallelism
 
 - `Image`
 - `dtbo.img`
+- `lahaina-v2.1.dtb`, the intermediate merged base devicetree used for
+  debugging/devicetree inspection. It is also carried in the zip for
+  convenience, but the current installer does not flash it.
 - `modules/` with stripped `.ko` files, `modules.load`, `modules.blocklist`,
   `modules.options` and depmod metadata
 - `LemonadepKernel-<version>-lemonadep-<date>.zip`

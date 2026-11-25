@@ -15,6 +15,8 @@ export JOBS=${JOBS:-$(nproc)}
 BUILD_NUMBER=${BUILD_NUMBER:-1}
 BUILD_USER=${BUILD_USER:-build-user}
 BUILD_HOST=${BUILD_HOST:-build-host}
+KBUILD_BUILD_TIMESTAMP=${KBUILD_BUILD_TIMESTAMP:-"Thu Jan  1 00:00:00 UTC 1970"}
+export KBUILD_BUILD_TIMESTAMP
 MODULES_REPO=${MODULES_REPO:-https://github.com/blahajcoding/lemonadep-6.18-modules}
 MODULES_REF=${MODULES_REF:-main}
 DT_REPO=${DT_REPO:-https://github.com/blahajcoding/lemonadep-6.18-devicetrees}
@@ -267,6 +269,7 @@ step_dtbo() {
 		{ cat "$LOGS/dt.log" >&2; die "devicetree build failed"; }
 	mkdir -p "$DIST"
 	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" --page_size=4096 "$WORK/out-dt/lemonadep-overlay.dtbo" "$WORK/out-dt/lemonadep-t0-overlay.dtbo"
+	cp "$WORK/out-dt/lahaina-v2.1.dtb" "$DIST/lahaina-v2.1.dtb"
 	# Pad to the stock lemonadep/OPLUS dtbo page size.
 	truncate -s %4096 "$DIST/dtbo.img"
 	echo "$DIST/dtbo.img"
@@ -291,7 +294,7 @@ step_zip() {
 		"$TC/AnyKernel3/" "$z/"
 	sed -e "s/@KREL@/$krel/g" -e "s/@KVER@/$kver/g" -e "s/@DATE@/$date/g" \
 		"$KERNEL/lemonadep/anykernel.sh" > "$z/anykernel.sh"
-	cp "$DIST/Image" "$DIST/dtbo.img" "$z/"
+	cp "$DIST/Image" "$DIST/dtbo.img" "$DIST/lahaina-v2.1.dtb" "$z/"
 	cp -r "$DIST/modules" "$z/modules618"
 	rm -f "$zipfile"
 	(cd "$z" && zip -qr9 "$zipfile" .)

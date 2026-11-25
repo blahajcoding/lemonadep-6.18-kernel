@@ -37,12 +37,12 @@ core-kernel modifications without a demonstrated userspace or hardware need.
 | Touch | `drivers/input/touchscreen/oplus_touchscreen_v2`, Synaptics S3908 | Port OPLUS touch framework and Synaptics TCM-oncell driver | Deferred; inherited redwood Goodix/Focaltech drivers are not a replacement |
 | Fingerprint | `drivers/input/oplus_fp_drivers`, Goodix optical G3S | Port OPLUS fingerprint common/Goodix optical stack with display/UDFPS coordination | Deferred |
 | Audio | Lahaina ASoC techpack, WCD938x, dual NXP TFA98xx | Reuse 6.18 Qualcomm audio platform; port lemonadep machine/amp configuration | Deferred; redwood AW88261 configuration is not correct for lemonadep |
-| Camera | Spectra `camera.ko`, OPLUS sensor/OIS/EEPROM adaptations | Reuse 6.18 Spectra base; port lemonadep camera DT and OPLUS sensor logic | Deferred |
+| Camera | Spectra `camera.ko`, OPLUS sensor/OIS/EEPROM adaptations | Reuse 6.18 Spectra base; port lemonadep camera DT and OPLUS sensor logic | Deferred; not shipped because the inherited flash/WLED providers depend on the wrong charger implementation |
 | WLAN/Bluetooth | QCA6490, qcacld-3.0, CNSS, btpower/bt_fm_slim | Reuse redwood's Lahaina-profile 6.18 WLAN/CNSS port; validate QCA6490 firmware and board DT | Inherited platform work; lemonadep validation pending |
 | Mobile data | IPA, datarmnet, rmnet offload/SHS | Reuse redwood's 6.18 data stack; adapt subsystem compatibility paths to Lahaina | Inherited platform work; validation pending |
 | Video | downstream `msm-vidc` | Reuse redwood's 6.18 msm-vidc port and validate SM8350 firmware/UAPI | Inherited platform work; validation pending |
-| Charging | `drivers/power/oplus_chg`, MP2650, RK826/OP10 Warp, HL7227, P9415 wireless | Port OPLUS charging stack only after basic power-supply/thermal safety works | Deferred; do not enable high-current charging early |
-| Haptics | AW8697 | Compare stock OPLUS driver with redwood's 6.18 AW8697 port and keep the ABI lemonadep userspace expects | Needs analysis; not yet productized |
+| Charging | `drivers/power/oplus_chg`, MP2650, RK826/OP10 Warp, HL7227, P9415 wireless | Port OPLUS charging stack only after basic power-supply/thermal safety works | Deferred; inherited Qualcomm charger module is redwood/Xiaomi-policy code and is not shipped |
+| Haptics | AW8697 | Compare stock OPLUS driver with redwood's 6.18 AW8697 port and keep the ABI lemonadep userspace expects | Deferred; inherited Qualcomm HV haptics object depends on the deferred redwood charger notifier ABI |
 | Alert slider | `drivers/misc/tri_state_key`, IST8801/MXM1120 Hall sensors | Port as lemonadep board modules | Deferred |
 | NFC | SN100T / NQ-NCI | Port the lemonadep NFC driver/DT; redwood `nxp-nci` is only a reference | Deferred |
 | Sensors/devinfo | OPLUS sensor feedback/devinfo and SAR/proximity/ALS configuration | Port after core input/power/devicetree is stable | Deferred |
@@ -59,7 +59,13 @@ support. They must be removed or replaced before a hardware release:
 - Xiaomi thermal interface (`mi_thermal`)
 - IR blaster driver (`ir-spi`), because OnePlus 9 Pro has no IR blaster
 - redwood board devicetree and panel descriptions
-- redwood-specific charger policy embedded in Qualcomm's battery charger driver
+- redwood-specific charger policy embedded in Qualcomm's battery charger driver;
+  because `leds-qcom-flash`, `leds-qti-flash`, `qcom-spmi-wled` and
+  `qcom-hv-haptics` link directly to that implementation, those objects are
+  currently not configured or shipped either. `camera.ko` in turn depends on
+  the flash/WLED interfaces and is therefore absent until the power chain is
+  replaced with lemonadep hardware support.
+- redwood `nxp-nci` NFC glue, which is not lemonadep SN100T/NQ-NCI support
 - redwood splash-console defaults (disabled until lemonadep framebuffer base,
   stride and 1440x3216 panel geometry are validated)
 - redwood vendor-compatibility shims (`subsys_compat`, `ioncompat`, `usbrole`,
@@ -71,6 +77,24 @@ support. They must be removed or replaced before a hardware release:
 The first scaffold may still compile some of these inherited objects while the
 replacement structure is being created. They are build artifacts only, not
 claimed lemonadep functionality.
+
+
+## 6.18 API migration notes
+
+These compatibility changes are intentional forward-porting glue, not hidden
+stubs. They should be revisited as the corresponding upstream interfaces settle:
+
+- `pci-msm` keeps Qualcomm's legacy `aer_stats` sysfs ABI but points it at the
+  upstream `pci_dev::aer_info` allocation. The two structures have the same
+  counter layout prefix in 6.18; a cleaner follow-up would expose or share the
+  upstream type instead of using the local layout-compatible definition.
+- `qcom_iommu_set_fault_handler*()` wrappers restore the Qualcomm fault-handler
+  API expected by CNSS/PCIe while dispatching to the 6.18 IOMMU core and the
+  registered ARM SMMU implementation. Unsupported domains fail inertly, as the
+  other Qualcomm IOMMU utility wrappers do.
+- `mhi_uevent_notify()` is the missing Qualcomm MHI execution-environment
+  notification body, based on the upstream Qualcomm patch, and emits the real
+  `EXEC_ENV` uevent rather than suppressing it.
 
 ## Compile-fix documentation rule
 
