@@ -58,4 +58,7 @@ reset_ak;
 dump_boot;
 write_boot;
 
+ui_print "- Writing vendor_dlkm WLAN modules";
+flash_generic vendor_dlkm;
+
 ui_print " " "Done. Root (KernelSU/Magisk) in this boot is kept.";

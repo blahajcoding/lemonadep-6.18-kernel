@@ -18,7 +18,7 @@ yet mean the result is safe or functional on OnePlus 9 Pro hardware; see
 ```sh
 # Debian / Ubuntu
 sudo apt install git make bc bison flex python3 perl rsync cpio curl zip unzip lz4 \
-    build-essential kmod libssl-dev libelf-dev zlib1g-dev
+    build-essential kmod e2fsprogs libssl-dev libelf-dev zlib1g-dev
 
 # Arch
 sudo pacman -S --needed git make bc bison flex python perl rsync cpio curl zip unzip lz4 \
@@ -62,8 +62,9 @@ to keep output at the top level of the workspace.
 | `tools` | Downloads pinned Clang r596125, Rust 1.88.0, bindgen 0.72.1, pahole, mkdtboimg, mkbootimg/unpack_bootimg and AnyKernel3 |
 | `kernel` | Configures with `gki_defconfig + vendor/lemonadep.config`, builds `Image` and in-tree modules |
 | `modules` | Builds vendor modules and collects/strips the shipped module set |
+| `vendor_dlkm` | Builds the small ext4 `vendor_dlkm.img` containing the deferred CNSS/qcacld WLAN modules |
 | `dtbo` | Builds devicetree overlays and `dtbo.img` |
-| `zip` | Packs `Image`, modules and `dtbo.img` into an AnyKernel3 zip |
+| `zip` | Packs `Image`, modules, `vendor_dlkm.img` and `dtbo.img` into an AnyKernel3 zip |
 | `migrate` | Repacks dumped crDroid `boot`/`vendor_boot` images into offline inactive-slot migration images |
 | `clean` | Removes build output while keeping toolchains and source checkouts |
 
@@ -108,6 +109,12 @@ JOBS=4 ./build.sh kernel   # lower parallelism
   convenience, but is not flashed directly.
 - `modules/` with stripped `.ko` files, `modules.load`, `modules.blocklist`,
   `modules.options` and depmod metadata
+- `vendor_dlkm.img`, an ext4 image whose `lib/modules` directory contains the
+  ten deferred CNSS/qcacld modules, dependency-ordered `modules.load`,
+  `/vendor/lib/modules/`-prefixed `modules.dep`, aliases and the qcacld
+  blocklist. crDroid mounts `vendor_dlkm` as ext4 at `/vendor_dlkm`; its
+  `/vendor/lib/modules` path then gives second-stage init the modules that
+  disappear with the first-stage boot ramdisk.
 - `LemonadepKernel-<version>-lemonadep-<date>.zip`
 
 Do not mix a new `Image` with modules from another kernel sublevel. Rebuild all
@@ -125,8 +132,8 @@ BOOT_IMG=/path/to/boot.img VENDOR_BOOT_IMG=/path/to/vendor_boot.img ./build.sh m
 ```
 
 The two input images must be dumps from the same working crDroid slot. The
-step writes `boot.img`, `vendor_boot.img`, `dtbo.img` and `SHA256SUMS.txt` to
-`$WORK/dist/migration`.
+step writes `boot.img`, `vendor_boot.img`, `dtbo.img`, `vendor_dlkm.img` and
+`SHA256SUMS.txt` to `$WORK/dist/migration`.
 
 The migration repack deliberately preserves the input vendor ramdisks,
 bootconfig, vendor cmdline and boot cmdline. It changes only:
@@ -136,7 +143,10 @@ bootconfig, vendor cmdline and boot cmdline. It changes only:
   module payload. Android first-stage init prefers this exact-release
   directory over the old 5.4 module directories in the vendor ramdisk;
 - the vendor_boot DTB, replaced with the concatenated 6.18 Lahaina v1/v2/v2.1
-  base devicetrees.
+  base devicetrees;
+- `vendor_dlkm.img` is not derived from the input images. It is the newly
+  built 6.18 WLAN module partition and must be flashed alongside the inactive
+  slot images when testing wireless.
 
 The 6.18 base bootargs are already in the base devicetree, while
 `androidboot.hardware=qcom` and the other crDroid arguments remain in the
@@ -157,6 +167,7 @@ inactive slot is `b`:
 fastboot flash boot_b boot.img
 fastboot flash vendor_boot_b vendor_boot.img
 fastboot flash dtbo_b dtbo.img
+fastboot flash vendor_dlkm vendor_dlkm.img
 fastboot --set-active=b
 ```
 

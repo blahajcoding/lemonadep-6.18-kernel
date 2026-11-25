@@ -41,9 +41,11 @@ FDTs as `dtb` and patches them into the existing `vendor_boot` at install time.
 The first lemonadep overlay checkpoint now ports the stock critical memory
 reservations (`removed_mem` through `0xe1600000`, splash/dfps memory, OPLUS
 boot-log/param memory and ramoops) plus stock USB/PCIe board fixes. Display,
-touch, cnss/QCA6490, charging, audio, camera, sensors, fingerprint, NFC and
-pinctrl sleep-state coverage remain incomplete; this is not yet a full stock
-devicetree replacement.
+touch, charging, audio, camera, sensors, fingerprint, NFC and pinctrl
+sleep-state coverage remain incomplete; this is not yet a full stock
+devicetree replacement. The QCA6490 CNSS platform node, PCIe IOMMU fastmap
+partition and lemonadep NV-MAC/RF-rail overrides are now present, but they are
+unproven on hardware.
 
 
 The AnyKernel zip is currently an update mechanism for a ROM already running a
@@ -52,7 +54,8 @@ migration path is instead the offline `./build.sh migrate` flow: it repacks a
 dumped crDroid boot image with the 6.18 kernel and an exact-release
 `/lib/modules/<kernel-release>` first-stage module directory, repacks the
 matching vendor_boot with the 6.18 base DTBs, and emits flashable
-`boot.img`/`vendor_boot.img`/`dtbo.img` for the inactive slot. Android
+`boot.img`/`vendor_boot.img`/`dtbo.img` plus a 6.18 `vendor_dlkm.img` for the
+inactive slot. Android
 first-stage init supplies the module-loading policy, so no custom PID 1 is
 needed for this checkpoint. This packaging path is implemented and host-side
 validated, but it remains untested on hardware; cmdline, userdata mounting,
@@ -69,7 +72,7 @@ inactive-slot boot test.
 | Fingerprint | `drivers/input/oplus_fp_drivers`, Goodix optical G3S | Port OPLUS fingerprint common/Goodix optical stack with display/UDFPS coordination | Deferred |
 | Audio | Lahaina ASoC techpack, WCD938x, dual NXP TFA98xx | Reuse 6.18 Qualcomm audio platform; port lemonadep machine/amp configuration | Deferred; redwood AW88261 configuration is not correct for lemonadep |
 | Camera | Spectra `camera.ko`, OPLUS sensor/OIS/EEPROM adaptations | Reuse 6.18 Spectra base; port lemonadep camera DT and OPLUS sensor logic | Deferred; not shipped because the inherited flash/WLED providers depend on the wrong charger implementation |
-| WLAN/Bluetooth | QCA6490, qcacld-3.0, CNSS, btpower/bt_fm_slim | Reuse redwood's Lahaina-profile 6.18 WLAN/CNSS port; port `qcom,cnss-qca6490` DT, then load `qca_cld3_wlan` after firmware mounts as crDroid does | CNSS/qcacld compile but are not first-stage loaded because the lemonadep cnss DT is still missing; btpower/bt_fm_slim deferred |
+| WLAN/Bluetooth | QCA6490, qcacld-3.0, CNSS, btpower/bt_fm_slim | Reuse redwood's Lahaina-profile 6.18 WLAN/CNSS port; port `qcom,cnss-qca6490` DT, then load `qca_cld3_wlan` after firmware mounts as crDroid does | CNSS/qcacld compile and are packaged in `vendor_dlkm.img`; the qca6490 DT/PCIe fastmap partition is present but unproven on hardware; btpower/bt_fm_slim deferred |
 | Mobile data | IPA, datarmnet, rmnet offload/SHS | Reuse redwood's 6.18 data stack; adapt subsystem compatibility paths to Lahaina | Inherited platform work; validation pending |
 | Video | downstream `msm-vidc` | Reuse redwood's 6.18 msm-vidc port and validate SM8350 firmware/UAPI | Inherited platform work; validation pending |
 | Charging | `drivers/power/oplus_chg`, MP2650, RK826/OP10 Warp, HL7227, P9415 wireless | Port OPLUS charging stack only after basic power-supply/thermal safety works | Deferred; inherited Qualcomm charger module is redwood/Xiaomi-policy code and is not shipped |

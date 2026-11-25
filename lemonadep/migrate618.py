@@ -418,9 +418,12 @@ def main():
     final_boot = out_dir / "boot.img"
     final_vendor = out_dir / "vendor_boot.img"
     final_dtbo = out_dir / "dtbo.img"
+    final_vendor_dlkm = out_dir / "vendor_dlkm.img" if args.vendor_dlkm else None
     shutil.copyfile(boot_out, final_boot)
     shutil.copyfile(vendor_out, final_vendor)
     shutil.copyfile(args.dtbo, final_dtbo)
+    if final_vendor_dlkm:
+        shutil.copyfile(args.vendor_dlkm, final_vendor_dlkm)
 
     boot_size = check_size(final_boot, BOOT_IMAGE_LIMIT, "boot.img")
     vendor_size = check_size(final_vendor, VENDOR_BOOT_IMAGE_LIMIT, "vendor_boot.img")
@@ -438,11 +441,14 @@ def main():
         "",
         "sha256:",
     ]
-    for label, path, size in (
+    output_images = [
         ("boot.img", final_boot, boot_size),
         ("vendor_boot.img", final_vendor, vendor_size),
         ("dtbo.img", final_dtbo, dtbo_size),
-    ):
+    ]
+    if final_vendor_dlkm:
+        output_images.append(("vendor_dlkm.img", final_vendor_dlkm, final_vendor_dlkm.stat().st_size))
+    for label, path, size in output_images:
         report.append(f"{sha256(path)}  {label}  ({size} bytes)")
     (out_dir / "SHA256SUMS.txt").write_text("\n".join(report) + "\n")
 
@@ -450,6 +456,8 @@ def main():
     print(f"  boot.img        {boot_size} bytes")
     print(f"  vendor_boot.img {vendor_size} bytes")
     print(f"  dtbo.img        {dtbo_size} bytes")
+    if final_vendor_dlkm:
+        print(f"  vendor_dlkm.img {final_vendor_dlkm.stat().st_size} bytes")
     print(f"  modules in /lib/modules/{args.release}: {module_count}")
     if unwrapped:
         print("  note: an old KernelSU loader was unwrapped because its kernel module is not compatible")

@@ -266,6 +266,20 @@ collect_modules() {
 	echo "$n modules in $DIST/modules"
 }
 
+
+step_vendor_dlkm() {
+	need_kernel
+	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
+	command -v mke2fs >/dev/null || die "missing host tool for vendor_dlkm: mke2fs"
+	log "Building vendor_dlkm.img with the deferred CNSS/qcacld module set"
+	python3 "$KERNEL/lemonadep/mkvendordlkm.py" \
+		--modules-dir "$DIST/modules" \
+		--modules-list "$KERNEL/lemonadep/modules.list" \
+		--first-stage-load "$KERNEL/lemonadep/modules.load" \
+		--output "$DIST/vendor_dlkm.img" \
+		--work-dir "$WORK/vendor-dlkm-build"
+}
+
 step_dtbo() {
 	need_tools
 	need_kernel
@@ -291,6 +305,7 @@ step_zip() {
 	need_kernel
 	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
 	[ -f "$DIST/dtbo.img" ] || die "no $DIST/dtbo.img, run: ./build.sh dtbo"
+	[ -f "$DIST/vendor_dlkm.img" ] || die "no $DIST/vendor_dlkm.img, run: ./build.sh vendor_dlkm"
 	[ -f "$TC/AnyKernel3/.fetched-$AK3_SHA" ] || die "AnyKernel3 missing, run: ./build.sh tools"
 	local krel kver date z=$WORK/zip zipfile
 	krel=$(kmake -s kernelrelease)
@@ -309,6 +324,7 @@ step_zip() {
 	cp "$DIST/Image" "$DIST/dtbo.img" "$z/"
 	cp "$DIST/vendor-dtbs.img" "$z/dtb"
 	cp "$DIST/lahaina-v2.1.dtb" "$z/"
+	cp "$DIST/vendor_dlkm.img" "$z/"
 	cp -r "$DIST/modules" "$z/modules618"
 	rm -f "$zipfile"
 	(cd "$z" && zip -qr9 "$zipfile" .)
@@ -321,6 +337,7 @@ step_migrate() {
 	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
 	[ -f "$DIST/dtbo.img" ] || die "no $DIST/dtbo.img, run: ./build.sh dtbo"
 	[ -f "$DIST/vendor-dtbs.img" ] || die "no $DIST/vendor-dtbs.img, run: ./build.sh dtbo"
+	[ -f "$DIST/vendor_dlkm.img" ] || die "no $DIST/vendor_dlkm.img, run: ./build.sh vendor_dlkm"
 	[ -f "$TC/mkbootimg/mkbootimg.py" ] || die "mkbootimg missing, run: ./build.sh tools"
 	[ -n "${BOOT_IMG:-}" ] || die "set BOOT_IMG to a dumped crDroid boot image"
 	[ -n "${VENDOR_BOOT_IMG:-}" ] || die "set VENDOR_BOOT_IMG to a dumped crDroid vendor_boot image"
@@ -339,6 +356,7 @@ step_migrate() {
 		--release "$krel" \
 		--vendor-dtbs "$DIST/vendor-dtbs.img" \
 		--dtbo "$DIST/dtbo.img" \
+		--vendor-dlkm "$DIST/vendor_dlkm.img" \
 		--work-dir "$WORK/migration-work" \
 		--out-dir "$DIST/migration" \
 		${EXTRA_BOOTARGS:+--extra-bootargs "$EXTRA_BOOTARGS"}
@@ -350,11 +368,11 @@ step_clean() {
 }
 
 steps=("$@")
-((${#steps[@]})) || steps=(tools kernel modules dtbo zip)
+((${#steps[@]})) || steps=(tools kernel modules vendor_dlkm dtbo zip)
 for s in "${steps[@]}"; do
 	case $s in
-	tools | kernel | modules | dtbo | zip | migrate | clean) ;;
-	*) die "unknown step '$s' (tools, kernel, modules, dtbo, zip, migrate, clean)" ;;
+	tools | kernel | modules | vendor_dlkm | dtbo | zip | migrate | clean) ;;
+	*) die "unknown step '$s' (tools, kernel, modules, vendor_dlkm, dtbo, zip, migrate, clean)" ;;
 	esac
 done
 mkdir -p "$WORK" "$LOGS"
