@@ -838,6 +838,7 @@ static enum power_supply_property bq27z561_props[] = {
 };
 
 static enum power_supply_property bq28z610_props[] = {
+	POWER_SUPPLY_PROP_SCOPE,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
@@ -2130,6 +2131,12 @@ static int bq27xxx_battery_get_property(struct power_supply *psy,
 	if (time_is_before_jiffies(di->last_update + 5 * HZ))
 		bq27xxx_battery_update_unlocked(di);
 	mutex_unlock(&di->lock);
+
+	if (psp == POWER_SUPPLY_PROP_SCOPE) {
+		val->intval = device_property_read_bool(di->dev, "qcom,device-scope") ?
+			POWER_SUPPLY_SCOPE_DEVICE : POWER_SUPPLY_SCOPE_SYSTEM;
+		return 0;
+	}
 
 	if (psp != POWER_SUPPLY_PROP_PRESENT && di->cache.flags < 0)
 		return di->cache.flags;

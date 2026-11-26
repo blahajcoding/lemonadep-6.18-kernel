@@ -1378,6 +1378,48 @@ static int battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 	return 0;
 }
 
+static bool battery_chg_fg_prop(enum power_supply_property prop,
+				       enum power_supply_property *fg_prop)
+{
+	switch (prop) {
+	case POWER_SUPPLY_PROP_CAPACITY:
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+	case POWER_SUPPLY_PROP_TEMP:
+	case POWER_SUPPLY_PROP_CYCLE_COUNT:
+	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+	case POWER_SUPPLY_PROP_CHARGE_FULL:
+	case POWER_SUPPLY_PROP_POWER_AVG:
+		*fg_prop = prop;
+		return true;
+	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
+		*fg_prop = POWER_SUPPLY_PROP_CHARGE_NOW;
+		return true;
+	default:
+		return false;
+	}
+}
+
+static int battery_chg_read_fg_prop(struct battery_chg_dev *bcdev,
+				    enum power_supply_property prop,
+				    union power_supply_propval *pval)
+{
+	struct power_supply *fg;
+	int rc;
+
+	fg = power_supply_get_by_reference(dev_fwnode(bcdev->dev),
+					   "qcom,fuel-gauge");
+	if (IS_ERR(fg))
+		return PTR_ERR(fg);
+	if (!fg)
+		return -ENODEV;
+
+	rc = power_supply_get_property(fg, prop, pval);
+	power_supply_put(fg);
+
+	return rc;
+}
+
 static int battery_psy_get_prop(struct power_supply *psy,
 		enum power_supply_property prop,
 		union power_supply_propval *pval)
@@ -1385,6 +1427,7 @@ static int battery_psy_get_prop(struct power_supply *psy,
 	struct battery_chg_dev *bcdev = power_supply_get_drvdata(psy);
 	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
 	int prop_id, rc;
+	enum power_supply_property fg_prop;
 
 	if (prop == POWER_SUPPLY_PROP_MANUFACTURER) {
 		if (!pst->manufacturer[0]) {
@@ -1397,6 +1440,15 @@ static int battery_psy_get_prop(struct power_supply *psy,
 	}
 
 	pval->intval = -ENODATA;
+
+	if (battery_chg_fg_prop(prop, &fg_prop) &&
+	    !battery_chg_read_fg_prop(bcdev, fg_prop, pval)) {
+		if (prop == POWER_SUPPLY_PROP_CAPACITY &&
+		    IS_ENABLED(CONFIG_QTI_PMIC_GLINK_CLIENT_DEBUG) &&
+		    (bcdev->fake_soc >= 0 && bcdev->fake_soc <= 100))
+			pval->intval = bcdev->fake_soc;
+		return 0;
+	}
 
 	/*
 	 * The prop id of TIME_TO_FULL_NOW and TIME_TO_FULL_AVG is same.
@@ -1419,6 +1471,17 @@ static int battery_psy_get_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		pval->intval = DIV_ROUND_CLOSEST(pst->prop[prop_id], 100);
+		if (!pval->intval && bcdev->voltage_soc_fallback &&
+		    !read_property_id(bcdev, pst, BATT_VOLT_NOW)) {
+			int volt_uv = pst->prop[BATT_VOLT_NOW];
+
+			if (volt_uv <= 6600000)
+				pval->intval = 0;
+			else if (volt_uv >= 8650000)
+				pval->intval = 100;
+			else
+				pval->intval = (volt_uv - 6600000) * 100 / 2050000;
+		}
 		if (IS_ENABLED(CONFIG_QTI_PMIC_GLINK_CLIENT_DEBUG) &&
 		   (bcdev->fake_soc >= 0 && bcdev->fake_soc <= 100))
 			pval->intval = bcdev->fake_soc;
@@ -3072,6 +3135,8 @@ static int battery_chg_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, bcdev);
 	bcdev->fake_soc = -EINVAL;
 	bcdev->micro_usb = of_property_read_bool(bcdev->dev->of_node, "qcom,micro-usb");
+	bcdev->voltage_soc_fallback = of_property_read_bool(bcdev->dev->of_node,
+			"qcom,voltage-soc-fallback");
 	rc = battery_chg_init_psy(bcdev);
 	if (rc < 0)
 		goto error;
