@@ -62,7 +62,7 @@ to keep output at the top level of the workspace.
 | `tools` | Downloads pinned Clang r596125, Rust 1.88.0, bindgen 0.72.1, pahole, mkdtboimg, mkbootimg/unpack_bootimg and AnyKernel3 |
 | `kernel` | Configures with `gki_defconfig + vendor/lemonadep.config`, builds `Image` and in-tree modules |
 | `modules` | Builds vendor modules and collects/strips the shipped module set |
-| `vendor_dlkm` | Builds the small EROFS `vendor_dlkm.img` containing the deferred CNSS/qcacld WLAN modules |
+| `vendor_dlkm` | Builds the EROFS `vendor_dlkm.img` containing modules deferred out of first-stage init |
 | `dtbo` | Builds devicetree overlays and `dtbo.img` |
 | `zip` | Packs `Image`, modules, `vendor_dlkm.img` and `dtbo.img` into an AnyKernel3 zip |
 | `migrate` | Repacks dumped crDroid `boot`/`vendor_boot` images into offline inactive-slot migration images |
@@ -109,12 +109,14 @@ JOBS=4 ./build.sh kernel   # lower parallelism
   convenience, but is not flashed directly.
 - `modules/` with stripped `.ko` files, `modules.load`, `modules.blocklist`,
   `modules.options` and depmod metadata
-- `vendor_dlkm.img`, an EROFS image whose `lib/modules` directory contains the
-  ten deferred CNSS/qcacld modules, dependency-ordered `modules.load`,
-  `/vendor/lib/modules/`-prefixed `modules.dep`, aliases and the qcacld
-  blocklist. crDroid mounts `vendor_dlkm` as EROFS at `/vendor_dlkm`; its
-  `/vendor/lib/modules` path then gives second-stage init the modules that
-  disappear with the first-stage boot ramdisk.
+- `vendor_dlkm.img`, an EROFS image whose `lib/modules` directory contains
+  the modules deferred out of first-stage init, dependency-ordered
+  `modules.load`, `/vendor/lib/modules/`-prefixed `modules.dep`, aliases and
+  the qcacld blocklist. crDroid mounts `vendor_dlkm` as EROFS at
+  `/vendor_dlkm`; its `/vendor/lib/modules` path then gives second-stage init
+  the modules that disappear with the first-stage boot ramdisk. The image is
+  not optional in the migration flow: display, audio, remoteproc, networking
+  and WLAN support now live there rather than in the boot ramdisk.
 - `LemonadepKernel-<version>-lemonadep-<date>.zip`
 
 Do not mix a new `Image` with modules from another kernel sublevel. Rebuild all
@@ -139,14 +141,19 @@ The migration repack deliberately preserves the input vendor ramdisks,
 bootconfig, vendor cmdline and boot cmdline. It changes only:
 
 - the boot kernel, replaced with the 6.18 `Image`;
-- the boot ramdisk, which gains `/lib/modules/<kernel-release>` with the 6.18
-  module payload. Android first-stage init prefers this exact-release
-  directory over the old 5.4 module directories in the vendor ramdisk;
+- the boot ramdisk, which gains `/lib/modules/<kernel-release>` with a
+  dependency-closed first-stage subset of the 6.18 modules (storage, clocks,
+  regulators, pinctrl, interconnect, SMMU, serial/console, USB/adb and zram).
+  Android first-stage init prefers this exact-release directory over the old
+  5.4 module directories in the vendor ramdisk. Keeping the remaining modules
+  out of this ramdisk is deliberate: it reduces the bootloader memory footprint
+  and prevents firmware-dependent display/audio/remoteproc/WLAN drivers from
+  probing before `/vendor` is mounted;
 - the vendor_boot DTB, replaced with the concatenated 6.18 Lahaina v1/v2/v2.1
   base devicetrees;
 - `vendor_dlkm.img` is not derived from the input images. It is the newly
-  built 6.18 WLAN module partition and must be flashed alongside the inactive
-  slot images when testing wireless.
+  built 6.18 second-stage module partition and must be flashed alongside the
+  inactive slot images even when wireless is not the focus of the test.
 
 The 6.18 base bootargs are already in the base devicetree, while
 `androidboot.hardware=qcom` and the other crDroid arguments remain in the

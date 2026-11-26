@@ -271,7 +271,7 @@ step_vendor_dlkm() {
 	need_kernel
 	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
 	command -v mkfs.erofs >/dev/null || die "missing host tool for vendor_dlkm: mkfs.erofs"
-	log "Building vendor_dlkm.img with the deferred CNSS/qcacld module set"
+	log "Building vendor_dlkm.img with deferred second-stage modules"
 	python3 "$KERNEL/lemonadep/mkvendordlkm.py" \
 		--modules-dir "$DIST/modules" \
 		--modules-list "$KERNEL/lemonadep/modules.list" \

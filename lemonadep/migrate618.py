@@ -232,6 +232,10 @@ def unwrap_kernelsu_ramdisk(ramdisk_root):
     return True
 
 
+def module_key(name):
+    return os.path.basename(name).removesuffix(".ko").replace("-", "_")
+
+
 def install_modules(modules_dir, ramdisk_root, release):
     required = [
         "modules.load",
@@ -245,20 +249,90 @@ def install_modules(modules_dir, ramdisk_root, release):
     if missing:
         die(f"module metadata missing from {modules_dir}: {', '.join(missing)}")
 
-    module_files = sorted(modules_dir.glob("*.ko"))
-    if not module_files:
-        die(f"no .ko files in {modules_dir}")
+    load_file = modules_dir / "modules.load"
+    selected = []
+    for line in load_file.read_text().splitlines():
+        name = line.strip()
+        if name and not name.startswith("#"):
+            selected.append(os.path.basename(name))
+    if not selected:
+        die(f"no modules listed in {load_file}")
+
+    selected_set = set(selected)
+    missing_modules = [name for name in selected if not (modules_dir / name).is_file()]
+    if missing_modules:
+        die("modules.load names missing module files: " + " ".join(missing_modules))
+
+    deps = {}
+    for line in (modules_dir / "modules.dep").read_text().splitlines():
+        left, sep, right = line.partition(":")
+        if sep:
+            deps[os.path.basename(left.strip())] = [os.path.basename(x) for x in right.split()]
+
+    unsatisfied = []
+    for name in selected:
+        for dep in deps.get(name, []):
+            if dep not in selected_set:
+                unsatisfied.append(f"{name}->{dep}")
+    if unsatisfied:
+        die(
+            "first-stage module list is not dependency-closed; "
+            "move the dependency into modules.load or vendor_dlkm: "
+            + " ".join(unsatisfied[:20])
+        )
 
     target = ramdisk_root / "lib" / "modules" / release
     if target.exists():
         shutil.rmtree(target)
     target.mkdir(parents=True)
-    for source in module_files + [modules_dir / name for name in required]:
-        shutil.copyfile(source, target / source.name)
-        (target / source.name).chmod(0o644)
+    for name in selected:
+        shutil.copyfile(modules_dir / name, target / name)
+        (target / name).chmod(0o644)
+
+    # Keep depmod metadata consistent with the much smaller first-stage set.
+    # In particular, do not leave softdep/alias references to vendor_dlkm-only
+    # modules that disappear with the first-stage ramdisk.
+    selected_keys = {module_key(name) for name in selected}
+    dep_lines = []
+    for line in (modules_dir / "modules.dep").read_text().splitlines():
+        left, sep, right = line.partition(":")
+        name = os.path.basename(left.strip())
+        if sep and name in selected_set:
+            kept = [x for x in right.split() if os.path.basename(x) in selected_set]
+            dep_lines.append(f"{name}:{' ' if kept else ''}{' '.join(kept)}\n")
+    (target / "modules.dep").write_text("".join(dep_lines))
+
+    alias_lines = []
+    for line in (modules_dir / "modules.alias").read_text().splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] == "alias" and module_key(parts[-1]) in selected_keys:
+            alias_lines.append(line + "\n")
+    (target / "modules.alias").write_text("".join(alias_lines))
+
+    softdep_lines = []
+    for line in (modules_dir / "modules.softdep").read_text().splitlines():
+        parts = line.split()
+        if len(parts) < 4 or parts[0] != "softdep" or module_key(parts[1]) not in selected_keys:
+            continue
+        mode_index = next((i for i, part in enumerate(parts) if part in ("pre:", "post:")), -1)
+        if mode_index < 0:
+            continue
+        kept_deps = [x for x in parts[mode_index + 1:] if module_key(x) in selected_keys]
+        if kept_deps:
+            softdep_lines.append(
+                "softdep " + parts[1] + " " + parts[mode_index] + " " + " ".join(kept_deps) + "\n"
+            )
+    (target / "modules.softdep").write_text("".join(softdep_lines))
+
+    for name in ("modules.load", "modules.blocklist", "modules.options"):
+        shutil.copyfile(modules_dir / name, target / name)
+        (target / name).chmod(0o644)
+    for path in target.iterdir():
+        if path.is_file():
+            path.chmod(0o644)
     for directory in [ramdisk_root / "lib", ramdisk_root / "lib" / "modules", target]:
         directory.chmod(0o755)
-    return target, len(module_files)
+    return target, len(selected)
 
 
 def make_boot_image(tools_dir, args, kernel, ramdisk, output, extra_bootargs):

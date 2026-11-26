@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
-"""Build lemonadep's small post-first-stage vendor_dlkm image."""
+"""Build lemonadep's post-first-stage vendor_dlkm image."""
 
 import argparse
 import io
@@ -26,6 +26,10 @@ def read_names(path):
 
 def module_name(name):
     return name[:-3] if name.endswith(".ko") else name
+
+
+def module_key(name):
+    return module_name(name).replace("-", "_")
 
 
 def parse_dep(text):
@@ -135,12 +139,12 @@ def main():
         lines.append(f"{left}:{right}\n")
     (modroot / "modules.dep").write_text("".join(lines))
 
-    selected_names = {x[:-3] for x in order}
+    selected_names = {module_key(x) for x in order}
     if (src / "modules.alias").is_file():
         aliases = []
         for line in (src / "modules.alias").read_text().splitlines():
             parts = line.split()
-            if len(parts) >= 3 and parts[0] == "alias" and parts[-1] in selected_names:
+            if len(parts) >= 3 and parts[0] == "alias" and module_key(parts[-1]) in selected_names:
                 aliases.append(line + "\n")
         (modroot / "modules.alias").write_text("".join(aliases))
 
@@ -148,12 +152,12 @@ def main():
         softdeps = []
         for line in (src / "modules.softdep").read_text().splitlines():
             parts = line.split()
-            if len(parts) >= 3 and parts[0] == "softdep" and parts[1] in selected_names:
+            if len(parts) >= 3 and parts[0] == "softdep" and module_key(parts[1]) in selected_names:
                 softdeps.append(line + "\n")
         (modroot / "modules.softdep").write_text("".join(softdeps))
 
     load_order = [x for x in order if x != "qca_cld3_wlan.ko"]
-    (modroot / "modules.load").write_text("".join(f"{x}\n" for x in load_order))
+    (modroot / "modules.load").write_text("".join(f"{module_name(x)}\n" for x in load_order))
     blocklist = src / "modules.blocklist"
     shutil.copy2(blocklist, modroot / "modules.blocklist") if blocklist.is_file() else (modroot / "modules.blocklist").write_text("")
     options = src / "modules.options"

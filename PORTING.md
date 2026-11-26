@@ -55,12 +55,17 @@ dumped crDroid boot image with the 6.18 kernel and an exact-release
 `/lib/modules/<kernel-release>` first-stage module directory, repacks the
 matching vendor_boot with the 6.18 base DTBs, and emits flashable
 `boot.img`/`vendor_boot.img`/`dtbo.img` plus a 6.18 `vendor_dlkm.img` for the
-inactive slot. Android
-first-stage init supplies the module-loading policy, so no custom PID 1 is
-needed for this checkpoint. This packaging path is implemented and host-side
-validated, but it remains untested on hardware; cmdline, userdata mounting,
-remoteproc firmware timing, deferred probes and ramoops still require a real
-inactive-slot boot test.
+inactive slot. The first-stage directory is deliberately limited to a
+dependency-closed boot-critical subset (UFS/storage, clocks, regulators,
+pinctrl, interconnect, SMMU, serial/console, USB/adb and zram). The remaining
+hardware modules are dependency-ordered in EROFS `vendor_dlkm` so they load
+only after the vendor partition and firmware are available. This reduces the
+bootloader memory footprint and avoids one-shot remoteproc firmware failures
+in first stage. Android first-stage init supplies the initial module-loading
+policy, so no custom PID 1 is needed for this checkpoint. This packaging path
+is implemented and host-side validated, but it remains untested on hardware;
+cmdline, userdata mounting, remoteproc firmware timing, deferred probes and
+ramoops still require a real inactive-slot boot test.
 
 ## Hardware support matrix
 
