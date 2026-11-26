@@ -612,6 +612,7 @@ struct battery_chg_dev {
 	bool				notify_en;
 	bool				error_prop;
 	bool				micro_usb;
+	bool				voltage_soc_fallback;
 	const struct battery_charger_config	*config;
 #ifdef CONFIG_QTI_CHARGER_NFC_VREG
 	struct bharger_regulator	nfc_vreg;

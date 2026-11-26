@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the redwood 6.18 kernel, its vendor modules, dtbo.img and a
+# Build the lemonadep 6.18 kernel, its vendor modules, dtbo.img and a
 # flashable AnyKernel3 zip. See BUILDING.md.
 #
 #   ./build.sh                 everything: tools kernel modules dtbo zip
@@ -9,16 +9,18 @@
 set -euo pipefail
 
 KERNEL=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-WORK=${WORK:-$(dirname "$KERNEL")/redwood-618-build}
+WORK=${WORK:-$(dirname "$KERNEL")/lemonadep-618-build}
 TC=${TC:-$WORK/toolchain}
 export JOBS=${JOBS:-$(nproc)}
 BUILD_NUMBER=${BUILD_NUMBER:-1}
 BUILD_USER=${BUILD_USER:-build-user}
 BUILD_HOST=${BUILD_HOST:-build-host}
-MODULES_REPO=${MODULES_REPO:-https://github.com/suvojeet-sengupta/redwood-6.18-modules}
-MODULES_REF=${MODULES_REF:-main}
-DT_REPO=${DT_REPO:-https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees}
-DT_REF=${DT_REF:-main}
+KBUILD_BUILD_TIMESTAMP=${KBUILD_BUILD_TIMESTAMP:-"Thu Jan  1 00:00:00 UTC 1970"}
+export KBUILD_BUILD_TIMESTAMP
+MODULES_REPO=${MODULES_REPO:-https://github.com/blahajcoding/lemonadep-6.18-modules}
+MODULES_REF=${MODULES_REF:-lemonadep/initial-scaffold}
+DT_REPO=${DT_REPO:-https://github.com/blahajcoding/lemonadep-6.18-devicetrees}
+DT_REF=${DT_REF:-lemonadep/initial-scaffold}
 
 CLANG_VER=clang-r596125
 CLANG_REPO=https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
@@ -27,6 +29,8 @@ BUILDTOOLS_REPO=https://android.googlesource.com/kernel/prebuilts/build-tools
 BUILDTOOLS_SHA=b7de4bc0a9de92dcaed4382c8a3180bb4e2485a4
 LIBUFDT_REPO=https://android.googlesource.com/platform/system/libufdt
 LIBUFDT_SHA=9b70f594cf149c7c73989c78f03d210f8aa1c1f6
+MKBOOTIMG_REPO=https://android.googlesource.com/platform/system/tools/mkbootimg
+MKBOOTIMG_SHA=ca3fa710f8bcbb9d3e6a3929ba3ecc841aca0677
 AK3_REPO=https://github.com/osm0sis/AnyKernel3
 AK3_SHA=41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
 RUST_VER=1.88.0
@@ -35,8 +39,19 @@ BINDGEN_VER=0.72.1
 OUT=$WORK/out
 DIST=$WORK/dist
 LOGS=$WORK/logs
-MODSRC=$WORK/redwood-6.18-modules
-DTSRC=$WORK/redwood-6.18-devicetrees
+# In the repo-manifest workspace the module and devicetree repositories are
+# siblings of this kernel checkout. Use them directly; stand-alone clones fall
+# back to pulling the published repositories into the work directory.
+if [ -z "${MODSRC:-}" ] && [ -e "$KERNEL/../lemonadep-6.18-modules/.git" ]; then
+	MODSRC=$(cd "$KERNEL/../lemonadep-6.18-modules" && pwd)
+else
+	MODSRC=${MODSRC:-$WORK/lemonadep-6.18-modules}
+fi
+if [ -z "${DTSRC:-}" ] && [ -e "$KERNEL/../lemonadep-6.18-devicetrees/.git" ]; then
+	DTSRC=$(cd "$KERNEL/../lemonadep-6.18-devicetrees" && pwd)
+else
+	DTSRC=${DTSRC:-$WORK/lemonadep-6.18-devicetrees}
+fi
 CLANG_DIR=${CLANG_DIR:-$TC/clang/$CLANG_VER}
 PAHOLE=${PAHOLE:-$TC/pahole}
 export RUSTUP_HOME=$TC/rustup CARGO_HOME=$TC/cargo RUSTUP_TOOLCHAIN=$RUST_VER
@@ -125,6 +140,12 @@ step_tools() {
 		mv "$TC/mkdtboimg.py.tmp" "$TC/mkdtboimg.py"
 	fi
 
+	if [ ! -f "$TC/mkbootimg/.fetched-$MKBOOTIMG_SHA" ]; then
+		log "Fetching Android mkbootimg/unpack_bootimg tools"
+		sparse_fetch "$TC/mkbootimg" "$MKBOOTIMG_REPO" "$MKBOOTIMG_SHA" \
+			/mkbootimg.py /unpack_bootimg.py /gki/
+	fi
+
 	if [ ! -f "$TC/AnyKernel3/.fetched-$AK3_SHA" ]; then
 		rm -rf "$TC/AnyKernel3"
 		git init -q "$TC/AnyKernel3"
@@ -153,8 +174,8 @@ need_kernel() {
 step_kernel() {
 	need_tools
 	mkdir -p "$OUT" "$LOGS"
-	log "Configuring: gki_defconfig + vendor/redwood.config"
-	kmake -s gki_defconfig vendor/redwood.config
+	log "Configuring: gki_defconfig + vendor/lemonadep.config"
+	kmake -s gki_defconfig vendor/lemonadep.config
 	grep -q '^CONFIG_RUST=y' "$OUT/.config" ||
 		die "Kconfig turned CONFIG_RUST off (no ashmem, no Rust Binder). Check: make O=$OUT LLVM=1 rustavailable"
 	log "Building Image and in-tree modules with $JOBS jobs (log: $LOGS/kernel.log)"
@@ -162,13 +183,21 @@ step_kernel() {
 	log "Kernel $(kmake -s kernelrelease) built: $OUT/arch/arm64/boot/Image"
 }
 
-# The module build scripts in redwood-6.18-modules/bringup expect
-# $R/redwood-6.18-kernel, $R/out and $R/redwood-6.18-modules.
-link_kernel() {
-	local l=$WORK/redwood-6.18-kernel
-	[ "$(readlink -f "$l")" = "$KERNEL" ] && return
-	[ -e "$l" ] && [ ! -L "$l" ] && die "$l exists and is not this kernel tree"
-	ln -sfn "$KERNEL" "$l"
+# The module and devicetree build scripts expect the three source trees below
+# $R. In a repo-manifest checkout they may live next to the kernel instead, so
+# link them into the work directory without copying or modifying them.
+link_source() {
+	local target=$1 name=$2
+	local l=$WORK/$name
+	[ "$(readlink -f "$target")" = "$(readlink -f "$l")" ] && return
+	[ -e "$l" ] && [ ! -L "$l" ] && die "$l exists and is not $target"
+	ln -sfn "$target" "$l"
+}
+
+link_sources() {
+	link_source "$KERNEL" lemonadep-6.18-kernel
+	[ ! -d "$MODSRC" ] || link_source "$MODSRC" lemonadep-6.18-modules
+	[ ! -d "$DTSRC" ] || link_source "$DTSRC" lemonadep-6.18-devicetrees
 }
 
 get_repo() {
@@ -184,12 +213,15 @@ get_repo() {
 step_modules() {
 	need_tools
 	need_kernel
-	link_kernel
+	link_sources
 	log "Vendor module sources"
 	get_repo "$MODSRC" "$MODULES_REPO" "$MODULES_REF"
 	local b=$MODSRC/bringup s
 	export R=$WORK CLANG=$CLANG_DIR/bin PAHOLE
-	for s in vendor618 data618 wlan618 misc618 redwood618; do
+	# board618 is deliberately outside the default build. Its inherited
+	# redwood board drivers need per-driver lemonadep/OnePlus userspace audit;
+	# build it explicitly only when a replacement driver is being ported.
+	for s in vendor618 data618 wlan618 misc618; do
 		log "build-$s.sh (logs in $WORK/vb)"
 		bash "$b/build-$s.sh"
 	done
@@ -197,18 +229,18 @@ step_modules() {
 }
 
 collect_modules() {
-	local list=$KERNEL/redwood/modules.list stage=$WORK/stage krel f p n=0
+	local list=$KERNEL/lemonadep/modules.list stage=$WORK/stage krel f p n=0
 	local -A ko=()
 	krel=$(kmake -s kernelrelease)
 	log "Collecting the $(wc -l < "$list") shipped modules"
 	# Vendor builds win over an in-tree module of the same name.
 	while IFS= read -r p; do ko[${p##*/}]=$p; done < <(find "$OUT" -name '*.ko')
-	while IFS= read -r p; do ko[${p##*/}]=$p; done < <(find "$WORK/vb" -name '*.ko')
+	while IFS= read -r p; do ko[${p##*/}]=$p; done < <(find "$WORK/vb" -path "$WORK/vb/rw" -prune -o -name '*.ko' -print)
 	local missing=()
 	while IFS= read -r f; do [ -n "${ko[$f]:-}" ] || missing+=("$f"); done < "$list"
 	((${#missing[@]} == 0)) ||
 		die "${#missing[@]} modules were not built: ${missing[*]}
-  Look for errors in $WORK/vb/*.log and $WORK/vb/rw/*.log"
+  Look for errors in $WORK/vb/*.log"
 
 	rm -rf "$DIST/modules" "$stage"
 	mkdir -p "$DIST/modules" "$stage/lib/modules/$krel"
@@ -216,7 +248,7 @@ collect_modules() {
 		llvm-strip --strip-debug -o "$DIST/modules/$f" "${ko[$f]}"
 		n=$((n + 1))
 	done < "$list"
-	cp "$KERNEL/redwood/modules.load" "$DIST/modules/"
+	cp "$KERNEL/lemonadep/modules.load" "$DIST/modules/"
 	cp "$DIST/modules/"*.ko "$stage/lib/modules/$krel/"
 	local depmod
 	depmod=$(command -v depmod || echo /sbin/depmod)
@@ -228,25 +260,44 @@ collect_modules() {
 	for f in modules.dep modules.alias modules.softdep; do
 		cp "$stage/lib/modules/$krel/$f" "$DIST/modules/"
 	done
-	: > "$DIST/modules/modules.blocklist"
+	cp "$KERNEL/lemonadep/modules.blocklist" "$DIST/modules/modules.blocklist"
 	: > "$DIST/modules/modules.options"
 	rm -rf "$stage"
 	echo "$n modules in $DIST/modules"
 }
 
+
+step_vendor_dlkm() {
+	need_kernel
+	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
+	command -v mkfs.erofs >/dev/null || die "missing host tool for vendor_dlkm: mkfs.erofs"
+	log "Building vendor_dlkm.img with deferred second-stage modules"
+	python3 "$KERNEL/lemonadep/mkvendordlkm.py" \
+		--modules-dir "$DIST/modules" \
+		--modules-list "$KERNEL/lemonadep/modules.list" \
+		--first-stage-load "$KERNEL/lemonadep/modules.load" \
+		--output "$DIST/vendor_dlkm.img" \
+		--work-dir "$WORK/vendor-dlkm-build"
+}
+
 step_dtbo() {
 	need_tools
 	need_kernel
-	link_kernel
+	link_sources
 	log "Building dtbo.img"
 	get_repo "$DTSRC" "$DT_REPO" "$DT_REF"
 	get_repo "$MODSRC" "$MODULES_REPO" "$MODULES_REF"
 	R=$WORK CLANG=$CLANG_DIR/bin bash "$MODSRC/bringup/build-dt.sh" > "$LOGS/dt.log" 2>&1 ||
 		{ cat "$LOGS/dt.log" >&2; die "devicetree build failed"; }
 	mkdir -p "$DIST"
-	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" "$WORK/out-dt/redwood-overlay.dtbo"
-	# Padded to 2 KiB like the prebuilt, so the two compare byte for byte
-	truncate -s %2048 "$DIST/dtbo.img"
+	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" --page_size=4096 "$WORK/out-dt/lemonadep-t0-overlay.dtbo" "$WORK/out-dt/lemonadep-overlay.dtbo"
+	cp "$WORK/out-dt/lahaina-v2.1.dtb" "$DIST/lahaina-v2.1.dtb"
+	# vendor_boot carries all three Lahaina revision DTBs concatenated in
+	# ascending order, matching stock; the bootloader picks one by msm-id.
+	cat "$WORK/out-dt/lahaina.dtb" "$WORK/out-dt/lahaina-v2.dtb" \
+		"$WORK/out-dt/lahaina-v2.1.dtb" > "$DIST/vendor-dtbs.img"
+	# Pad to the stock lemonadep/OPLUS dtbo page size.
+	truncate -s %4096 "$DIST/dtbo.img"
 	echo "$DIST/dtbo.img"
 }
 
@@ -254,12 +305,13 @@ step_zip() {
 	need_kernel
 	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
 	[ -f "$DIST/dtbo.img" ] || die "no $DIST/dtbo.img, run: ./build.sh dtbo"
+	[ -f "$DIST/vendor_dlkm.img" ] || die "no $DIST/vendor_dlkm.img, run: ./build.sh vendor_dlkm"
 	[ -f "$TC/AnyKernel3/.fetched-$AK3_SHA" ] || die "AnyKernel3 missing, run: ./build.sh tools"
 	local krel kver date z=$WORK/zip zipfile
 	krel=$(kmake -s kernelrelease)
 	kver=$(kmake -s kernelversion)
 	date=$(date +%Y%m%d-%H%M%S)
-	zipfile=$DIST/Suvkernel-$kver-redwood-$date.zip
+	zipfile=$DIST/LemonadepKernel-$kver-lemonadep-$date.zip
 	log "Packing $zipfile"
 	cp "$OUT/arch/arm64/boot/Image" "$DIST/Image"
 	rm -rf "$z"
@@ -268,13 +320,46 @@ step_zip() {
 		--exclude=anykernel.sh --exclude=modules --exclude=patch --exclude=ramdisk \
 		"$TC/AnyKernel3/" "$z/"
 	sed -e "s/@KREL@/$krel/g" -e "s/@KVER@/$kver/g" -e "s/@DATE@/$date/g" \
-		"$KERNEL/redwood/anykernel.sh" > "$z/anykernel.sh"
+		"$KERNEL/lemonadep/anykernel.sh" > "$z/anykernel.sh"
 	cp "$DIST/Image" "$DIST/dtbo.img" "$z/"
+	cp "$DIST/vendor-dtbs.img" "$z/dtb"
+	cp "$DIST/lahaina-v2.1.dtb" "$z/"
+	cp "$DIST/vendor_dlkm.img" "$z/"
 	cp -r "$DIST/modules" "$z/modules618"
 	rm -f "$zipfile"
 	(cd "$z" && zip -qr9 "$zipfile" .)
 	rm -rf "$z"
 	sha256sum "$zipfile"
+}
+
+step_migrate() {
+	need_kernel
+	[ -f "$DIST/modules/modules.load" ] || die "no modules in $DIST/modules, run: ./build.sh modules"
+	[ -f "$DIST/dtbo.img" ] || die "no $DIST/dtbo.img, run: ./build.sh dtbo"
+	[ -f "$DIST/vendor-dtbs.img" ] || die "no $DIST/vendor-dtbs.img, run: ./build.sh dtbo"
+	[ -f "$DIST/vendor_dlkm.img" ] || die "no $DIST/vendor_dlkm.img, run: ./build.sh vendor_dlkm"
+	[ -f "$TC/mkbootimg/mkbootimg.py" ] || die "mkbootimg missing, run: ./build.sh tools"
+	[ -n "${BOOT_IMG:-}" ] || die "set BOOT_IMG to a dumped crDroid boot image"
+	[ -n "${VENDOR_BOOT_IMG:-}" ] || die "set VENDOR_BOOT_IMG to a dumped crDroid vendor_boot image"
+	[ -f "$BOOT_IMG" ] || die "BOOT_IMG does not exist: $BOOT_IMG"
+	[ -f "$VENDOR_BOOT_IMG" ] || die "VENDOR_BOOT_IMG does not exist: $VENDOR_BOOT_IMG"
+	for c in gzip lz4 cpio; do command -v "$c" >/dev/null || die "missing host tool for migration images: $c"; done
+	local krel
+	krel=$(kmake -s kernelrelease)
+	log "Building inactive-slot migration images from crDroid boot/vendor_boot"
+	python3 "$KERNEL/lemonadep/migrate618.py" \
+		--tools-dir "$TC/mkbootimg" \
+		--boot "$BOOT_IMG" \
+		--vendor-boot "$VENDOR_BOOT_IMG" \
+		--kernel "$OUT/arch/arm64/boot/Image" \
+		--modules-dir "$DIST/modules" \
+		--release "$krel" \
+		--vendor-dtbs "$DIST/vendor-dtbs.img" \
+		--dtbo "$DIST/dtbo.img" \
+		--vendor-dlkm "$DIST/vendor_dlkm.img" \
+		--work-dir "$WORK/migration-work" \
+		--out-dir "$DIST/migration" \
+		${EXTRA_BOOTARGS:+--extra-bootargs "$EXTRA_BOOTARGS"}
 }
 
 step_clean() {
@@ -283,11 +368,11 @@ step_clean() {
 }
 
 steps=("$@")
-((${#steps[@]})) || steps=(tools kernel modules dtbo zip)
+((${#steps[@]})) || steps=(tools kernel modules vendor_dlkm dtbo zip)
 for s in "${steps[@]}"; do
 	case $s in
-	tools | kernel | modules | dtbo | zip | clean) ;;
-	*) die "unknown step '$s' (tools, kernel, modules, dtbo, zip, clean)" ;;
+	tools | kernel | modules | vendor_dlkm | dtbo | zip | migrate | clean) ;;
+	*) die "unknown step '$s' (tools, kernel, modules, vendor_dlkm, dtbo, zip, migrate, clean)" ;;
 	esac
 done
 mkdir -p "$WORK" "$LOGS"

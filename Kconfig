@@ -33,7 +33,7 @@ source "Documentation/Kconfig"
 
 source "io_uring/Kconfig"
 
-source "Kconfig.redwood"
+source "Kconfig.qcom-extra"
 
 # ANDROID: Set KCONFIG_EXT_PREFIX to decend into an external project.
 source "$(KCONFIG_EXT_PREFIX)Kconfig.ext"

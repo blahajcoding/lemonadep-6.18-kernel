@@ -7287,7 +7287,7 @@ static int msm_pcie_config_device_info(struct pci_dev *pcidev, void *pdev)
 
 	if (pcie_dev->aer_enable) {
 		if (pci_pcie_type(pcidev) == PCI_EXP_TYPE_ROOT_PORT)
-			pcie_dev->aer_stats = pcidev->aer_stats;
+			pcie_dev->aer_stats = (struct aer_stats *)pcidev->aer_info;
 
 		if (msm_pcie_enable_pcie_error_reporting(pcidev))
 			PCIE_ERR(pcie_dev,
@@ -7887,7 +7887,7 @@ static void msm_pci_dev_aer_stats_incr(struct pci_dev *pdev,
 	unsigned long status = info->status & ~info->mask;
 	int i, max = -1;
 	u64 *counter = NULL;
-	struct aer_stats *aer_stats = pdev->aer_stats;
+	struct aer_stats *aer_stats = (struct aer_stats *)pdev->aer_info;
 
 	if (!aer_stats)
 		return;
@@ -7917,7 +7917,7 @@ static void msm_pci_dev_aer_stats_incr(struct pci_dev *pdev,
 static void msm_pci_rootport_aer_stats_incr(struct pci_dev *pdev,
 					    struct aer_err_source *e_src)
 {
-	struct aer_stats *aer_stats = pdev->aer_stats;
+	struct aer_stats *aer_stats = (struct aer_stats *)pdev->aer_info;
 
 	if (!aer_stats)
 		return;

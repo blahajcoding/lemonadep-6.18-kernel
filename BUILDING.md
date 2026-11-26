@@ -1,199 +1,239 @@
-# Building the redwood 6.18 kernel
+# Building the lemonadep 6.18 kernel
 
-`build.sh` builds everything that makes up this kernel on any x86_64 Linux
-machine, from a clean clone:
+`build.sh` builds the kernel, vendor modules, `dtbo.img` and a flashable
+AnyKernel3 zip on an x86_64 Linux host. It downloads a pinned Android
+toolchain, so host-wide compiler installation is not required.
 
-- the kernel `Image` and the 238 in-tree modules,
-- the 73 vendor modules from
-  [redwood-6.18-modules](https://github.com/suvojeet-sengupta/redwood-6.18-modules),
-- `dtbo.img` from
-  [redwood-6.18-devicetrees](https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees),
-- a flashable AnyKernel3 zip with all of the above.
+The current tree is a **build-system scaffold**. A successful compile does not
+yet mean the result is safe or functional on OnePlus 9 Pro hardware; see
+[PORTING.md](PORTING.md).
 
-It downloads its own toolchain, pinned to the exact versions the published
-kernel is built with, so nothing has to be installed system-wide apart from a
-few common build packages.
+## Requirements
 
-## What you need
-
-- x86_64 Linux (any distribution).
-- About 25 GB of free disk: 4 GB toolchain, 15 GB build output.
-- 8 GB of RAM or more. With less, lower `JOBS` (see below).
-- These packages:
-
-  ```sh
-  # Debian / Ubuntu
-  sudo apt install git make bc bison flex python3 perl rsync cpio curl zip unzip \
-      build-essential kmod libssl-dev libelf-dev zlib1g-dev
-
-  # Arch
-  sudo pacman -S --needed git make bc bison flex python perl rsync cpio curl zip unzip \
-      base-devel kmod openssl libelf zlib
-
-  # Fedora
-  sudo dnf install git make bc bison flex python3 perl rsync cpio curl zip unzip \
-      gcc kmod openssl-devel elfutils-libelf-devel zlib-devel
-  ```
-
-`build.sh` checks for all of them first and tells you what is missing.
-
-## Quick start
+- x86_64 Linux
+- about 25 GB free disk for toolchain and build output
+- 8 GB RAM or more (reduce `JOBS` on smaller machines)
+- common kernel build packages:
 
 ```sh
-git clone --depth=1 https://github.com/suvojeet-sengupta/redwood-6.18-kernel
-cd redwood-6.18-kernel
+# Debian / Ubuntu
+sudo apt install git make bc bison flex python3 perl rsync cpio curl zip unzip lz4 \
+    build-essential kmod erofs-utils libssl-dev libelf-dev zlib1g-dev
+
+# Arch
+sudo pacman -S --needed git make bc bison flex python perl rsync cpio curl zip unzip lz4 \
+    base-devel kmod openssl libelf zlib
+
+# Fedora
+sudo dnf install git make bc bison flex python3 perl rsync cpio curl zip unzip lz4 \
+    gcc kmod openssl-devel elfutils-libelf-devel zlib-devel
+```
+
+## Sync and build through repo
+
+```sh
+repo init -u https://github.com/blahajcoding/android_kernel_manifest.git -b android17-6.18-lemonadep
+repo sync --force-sync --no-clone-bundle --current-branch --no-tags -j$(nproc --all)
+cd kernel/lemonadep-6.18
 ./build.sh
 ```
 
-The first run downloads the toolchain and takes the longest. When it's done,
-the output is in `../redwood-618-build/dist`:
+The script detects these sibling projects:
 
-| File | What it is |
-|---|---|
-| `Suvkernel-<version>-redwood-<date>.zip` | Flashable zip: kernel, all modules, dtbo |
-| `Image` | The kernel |
-| `dtbo.img` | redwood's board overlay |
-| `modules/` | All 311 modules, stripped, with `modules.load` and the `depmod` files |
+```text
+kernel/lemonadep-6.18
+kernel/lemonadep-6.18-modules
+kernel/lemonadep-6.18-devicetrees
+```
+
+and builds directly against them. Output goes to `lemonadep-618-build` next to
+the kernel checkout unless `WORK` is set. In a repo workspace, set for example:
+
+```sh
+WORK=$PWD/../../out/lemonadep-6.18 ./build.sh
+```
+
+to keep output at the top level of the workspace.
 
 ## Steps
 
-`./build.sh` with no arguments runs every step in order. Each step can also
-run on its own, for example to rebuild only the vendor modules after
-changing one:
-
 | Step | What it does |
 |---|---|
-| `tools` | Downloads the toolchain into `toolchain/`. Skips what is already there |
-| `kernel` | Configures with `gki_defconfig` + `vendor/redwood.config`, builds `Image` and the in-tree modules |
-| `modules` | Clones redwood-6.18-modules (once), builds the vendor modules, collects all 311 into `dist/modules` |
-| `dtbo` | Clones redwood-6.18-devicetrees (once), builds `dist/dtbo.img` |
-| `zip` | Packs `Image`, `dtbo.img` and the modules into the AnyKernel3 zip |
-| `clean` | Deletes the build output. The toolchain and the cloned sources stay |
+| `tools` | Downloads pinned Clang r596125, Rust 1.88.0, bindgen 0.72.1, pahole, mkdtboimg, mkbootimg/unpack_bootimg and AnyKernel3 |
+| `kernel` | Configures with `gki_defconfig + vendor/lemonadep.config`, builds `Image` and in-tree modules |
+| `modules` | Builds vendor modules and collects/strips the shipped module set |
+| `vendor_dlkm` | Builds the EROFS `vendor_dlkm.img` containing modules deferred out of first-stage init |
+| `dtbo` | Builds devicetree overlays and `dtbo.img` |
+| `zip` | Packs `Image`, modules, `vendor_dlkm.img` and `dtbo.img` into an AnyKernel3 zip |
+| `migrate` | Repacks dumped crDroid `boot`/`vendor_boot` images into offline inactive-slot migration images |
+| `clean` | Removes build output while keeping toolchains and source checkouts |
+
+Examples:
 
 ```sh
-./build.sh kernel modules zip   # several steps, in this order
-./build.sh clean                # start over without downloading again
+./build.sh                 # all steps
+./build.sh kernel          # only the kernel
+./build.sh modules dtbo    # selected steps in order
+JOBS=4 ./build.sh kernel   # lower parallelism
 ```
-
-`make` only rebuilds what changed, so running `./build.sh` again after an
-edit is quick.
 
 ## Options
 
-Set these as environment variables, for example
-`JOBS=4 ./build.sh kernel`.
-
-| Variable | Default | What it sets |
+| Variable | Default | Meaning |
 |---|---|---|
-| `WORK` | `../redwood-618-build` | Where everything goes: toolchain, sources, build output |
-| `TC` | `$WORK/toolchain` | Toolchain directory. Point several work directories at one to share it |
-| `JOBS` | number of CPUs | Parallel build jobs. Use 4 on 8 GB of RAM |
-| `BUILD_NUMBER` | `1` | The `#N` in `uname -v` |
-| `BUILD_USER`, `BUILD_HOST` | `build-user`, `build-host` | The `user@host` in `/proc/version` |
-| `MODULES_REF`, `DT_REF` | `main` | Branch of the modules and devicetrees repositories to clone |
-| `CLANG_DIR` | downloaded | Use an existing `clang-r596125` directory instead of downloading one |
-| `PAHOLE` | downloaded | Use an existing pahole instead of downloading one |
+| `WORK` | sibling `lemonadep-618-build` | Work/output directory |
+| `TC` | `$WORK/toolchain` | Toolchain directory |
+| `JOBS` | CPU count | Parallel build jobs |
+| `BUILD_NUMBER` | `1` | Kernel build number |
+| `BUILD_USER`, `BUILD_HOST` | `build-user`, `build-host` | `/proc/version` identity |
+| `KBUILD_BUILD_TIMESTAMP` | fixed epoch timestamp | Kernel build timestamp; override to reproduce a release timestamp exactly |
+| `MODULES_REF`, `DT_REF` | `lemonadep/initial-scaffold` | Branch cloned when sibling sources are absent; tracks the open checkpoint PRs until they merge |
+| `BOOT_IMG`, `VENDOR_BOOT_IMG` | unset, required for `migrate` | Dumped crDroid boot images used as migration input |
+| `EXTRA_BOOTARGS` | empty | Extra kernel arguments appended to the input boot image cmdline by `migrate` |
+| `MODSRC`, `DTSRC` | sibling checkout or `$WORK` clone | Explicit module/devicetree source locations |
+| `CLANG_DIR` | downloaded toolchain | Existing Android Clang installation |
+| `PAHOLE` | downloaded binary | Existing Android-compatible pahole |
 
-The vendor modules and devicetrees are cloned into
-`$WORK/redwood-6.18-modules` and `$WORK/redwood-6.18-devicetrees`. If those
-directories already exist, `build.sh` uses them as they are and never pulls
-or resets them, so you can work on them there.
+## Output
 
-## Layout of the work directory
+`$WORK/dist` contains:
 
-```
-redwood-618-build/
-  toolchain/                 clang, rust, bindgen, pahole, mkdtboimg, AnyKernel3
-  out/                       kernel build (O=)
-  redwood-6.18-kernel  ->    symlink to this kernel tree
-  redwood-6.18-modules/      vendor module sources
-  redwood-6.18-devicetrees/  devicetree sources
-  vb/                        vendor module builds, one directory and log per tree
-  out-dt/                    devicetree build
-  logs/                      kernel.log, dt.log, depmod.log
-  dist/                      the results
-```
+- `Image`
+- `dtbo.img`
+- `vendor-dtbs.img`, the concatenated Lahaina v1/v2/v2.1 base devicetrees in
+  the same order as stock `vendor_boot`. The zip carries it as `dtb` and the
+  AnyKernel script repacks the existing `vendor_boot` with it while preserving
+  that image's vendor ramdisk and cmdline.
+- `lahaina-v2.1.dtb`, the intermediate merged base devicetree used for
+  debugging/devicetree inspection. It is also carried in the zip for
+  convenience, but is not flashed directly.
+- `modules/` with stripped `.ko` files, `modules.load`, `modules.blocklist`,
+  `modules.options` and depmod metadata
+- `vendor_dlkm.img`, an EROFS image whose `lib/modules` directory contains
+  the modules deferred out of first-stage init, dependency-ordered
+  `modules.load`, `/vendor/lib/modules/`-prefixed `modules.dep`, aliases and
+  the qcacld blocklist. crDroid mounts `vendor_dlkm` as EROFS at
+  `/vendor_dlkm`; its `/vendor/lib/modules` path then gives second-stage init
+  the modules that disappear with the first-stage boot ramdisk. The image is
+  not optional in the migration flow: display, audio, remoteproc, networking
+  and WLAN support now live there rather than in the boot ramdisk.
 
-## Toolchain
+  crDroid's `/vendor/bin/vendor_modprobe.sh` does not consume `modules.load`;
+  it enumerates `/vendor/lib/modules` with `modprobe -l` during early init and
+  probes every non-blocklisted module in parallel. The generated load/depmod
+  files are still correct metadata, but `modules.blocklist` is the practical
+  opt-out mechanism on this userspace. Since crDroid's modem/dsp/bt firmware
+  mounts are not first-stage mounts, ADSP/CDSP/modem firmware timing remains a
+  hardware-test unknown even though the modules themselves now load after the
+  vendor and vendor_dlkm filesystems are mounted.
+- `LemonadepKernel-<version>-lemonadep-<date>.zip`
 
-All pinned, all downloaded by `./build.sh tools`:
+Do not mix a new `Image` with modules from another kernel sublevel. Rebuild all
+steps after every ACK or configuration change.
 
-| Tool | Version | From |
-|---|---|---|
-| Clang | r596125 (22.0.2) | AOSP `platform/prebuilts/clang/host/linux-x86` |
-| Rust | 1.88.0 with `rust-src` and `rustfmt` | rustup, installed inside `toolchain/` |
-| bindgen | 0.72.1 | `cargo install bindgen-cli` |
-| pahole | v1.25 | AOSP `kernel/prebuilts/build-tools` |
-| mkdtboimg | — | AOSP `platform/system/libufdt` |
-| AnyKernel3 | — | osm0sis/AnyKernel3 |
 
-Why these exact versions:
+## Offline crDroid migration images
 
-- **Rust** must be available when the kernel is configured. Without it,
-  Kconfig silently drops `CONFIG_RUST`, and ashmem and the Rust Binder go
-  with it, which leaves Android without `/dev/ashmem`. `build.sh` stops with
-  an error if that happens.
-- **pahole 1.25 from Android's build-tools**. Upstream pahole 1.25 fails to
-  generate this kernel's BTF ("per-CPU variables limit").
-- **Clang r596125** is what Android builds `android17-6.18` with, and the
-  prebuilt kernel was built with it.
-
-Your own rustup or `~/.cargo` aren't touched: Rust lives in
-`toolchain/rustup` and `toolchain/cargo`.
-
-## Flashing the zip
-
-The zip is for a ROM that already runs a 6.18 kernel (one built with the
-[prebuilt](https://github.com/suvojeet-sengupta/device_xiaomi_redwood-kernel-6.18)).
-It refuses to install on a 5.4 or 6.12 ROM.
-
-1. Copy the zip to the phone.
-2. Flash it in recovery, or with an app that flashes AnyKernel3 zips.
-3. Reboot.
-
-It replaces the kernel in `boot` and puts the matching modules in the boot
-ramdisk, keeping root, then writes `dtbo`. Keep a backup of your `boot` and
-`dtbo` before you flash a kernel you built yourself.
-
-## Building by hand
-
-What `build.sh kernel` runs, if you want to do it yourself:
+The AnyKernel zip remains an updater for a ROM that is already running this
+6.18 kernel. For the first migration from crDroid's 5.4 kernel, build offline
+images instead:
 
 ```sh
-export PATH=<clang-r596125>/bin:$HOME/.cargo/bin:$PATH
-export LIBCLANG_PATH=<clang-r596125>/lib
-M="make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 LOCALVERSION= PAHOLE=<pahole>"
-
-$M gki_defconfig vendor/redwood.config
-$M -j$(nproc) Image modules
+BOOT_IMG=/path/to/boot.img VENDOR_BOOT_IMG=/path/to/vendor_boot.img ./build.sh migrate
 ```
 
-The vendor module scripts are in `redwood-6.18-modules/bringup`, see its
-README.
+The two input images must be dumps from the same working crDroid slot. The
+step writes `boot.img`, `vendor_boot.img`, `dtbo.img`, `vendor_dlkm.img` and
+`SHA256SUMS.txt` to `$WORK/dist/migration`.
 
-## Things to know
+The migration repack deliberately preserves the input vendor ramdisks,
+bootconfig, vendor cmdline and boot cmdline. It changes only:
 
-- **Rebuild every module with the kernel.** The vermagic includes the exact
-  kernel version, and every sublevel update (6.18.x) changes it. A new
-  `Image` with old modules doesn't boot.
-- **Build `Image` and the in-tree modules together.** pahole's BTF isn't
-  the same from one link to the next, and the in-tree modules carry BTF split
-  against that exact `vmlinux`. `build.sh kernel` always builds both in one
-  go. The vendor modules use distilled BTF and don't care.
-- **The modules aren't signed.** Same as the published prebuilt.
-- **`sync_fence` and `hw_fence` fail to build.** They're in mm-drivers but
-  yupik doesn't use them, so that's expected.
-- `modules.list` and `modules.load` in [`redwood/`](redwood) say which
-  modules ship and in which order they load. If you add a module, add it to
-  both.
+- the boot kernel, replaced with the 6.18 `Image`;
+- the boot ramdisk, which gains `/lib/modules/<kernel-release>` with a
+  dependency-closed first-stage subset of the 6.18 modules (storage, clocks,
+  regulators, pinctrl, interconnect, SMMU, serial/console, USB/adb and zram).
+  Android first-stage init prefers this exact-release directory over the old
+  5.4 module directories in the vendor ramdisk. Keeping the remaining modules
+  out of this ramdisk is deliberate: it reduces the bootloader memory footprint
+  and prevents firmware-dependent display/audio/remoteproc/WLAN drivers from
+  probing before `/vendor` is mounted;
+- the vendor_boot DTB, replaced with the concatenated 6.18 Lahaina v1/v2/v2.1
+  base devicetrees;
+- `vendor_dlkm.img` is not derived from the input images. It is the newly
+  built 6.18 second-stage module partition and must be flashed alongside the
+  inactive slot images even when wireless is not the focus of the test.
 
-## Troubleshooting
+The 6.18 base bootargs are already in the base devicetree, while
+`androidboot.hardware=qcom` and the other crDroid arguments remain in the
+preserved vendor_boot cmdline. Set `EXTRA_BOOTARGS` only for a focused boot
+experiment; it is appended to the original boot cmdline rather than replacing
+it.
 
-| Problem | Fix |
-|---|---|
-| `Kconfig turned CONFIG_RUST off` | Run `./build.sh tools` again. Check with `make O=<work>/out LLVM=1 rustavailable` |
-| `N modules were not built: …` | Open the logs in `<work>/vb/*.log` and `<work>/vb/rw/*.log` and look for `error:` |
-| `modules with unresolved symbols` | A vendor module needs something the kernel doesn't export. Usually the modules repo is on another branch than the kernel |
-| Killed while linking, or the machine freezes | Not enough RAM: `JOBS=2 ./build.sh` |
-| Clang download stalls | Delete `toolchain/clang` and run `./build.sh tools` again |
-| Phone doesn't boot | Flash your backed up `boot` and `dtbo` from recovery or fastboot |
+If the input boot ramdisk was wrapped by an old KernelSU loader, the migration
+image unwraps `/init.real` and drops the incompatible old `kernelsu.ko`. Root
+is therefore not preserved in that migration boot. This is intentional: a
+kernel module built for 5.4 cannot be loaded into 6.18.
+
+Flash the output only to the inactive slot, leaving the working slot as the
+fallback, after backing up all three original partitions and slot a's `vendor_dlkm`. Because crDroid uses
+Virtual A/B, first confirm that the inactive slot actually has its logical
+partitions: `fastboot getvar all` should list the relevant `is-logical:*_b`
+entries when slot `b` is the target, and `vbmeta_b` should report disabled
+verification flags. If those logical partitions are missing, restore the same
+crDroid build to slot b first instead of flashing only these three images.
+Also check `fastboot getvar snapshot-update-status`; if it is not `none`, boot
+the working slot once and let the Virtual A/B merge finish before flashing a
+logical partition in fastbootd.
+
+For the first diagnostic attempt, use
+`EXTRA_BOOTARGS="androidboot.first_stage_console=2"` when the crDroid build is
+`ro.debuggable=1`; otherwise the option is ignored. A first-stage module failure
+is otherwise difficult to distinguish from a bootloader memory or partition
+failure. `migrate618.py` prints the kernel arm64 `image_size`, compressed boot
+and vendor ramdisk sizes, two 1 MiB DT slots and their total; treat a total
+above 80 MiB as a warning because the default bootloader memory region is about
+86 MiB.
+
+For example, if the inactive slot is `b`, the manual sequence is:
+
+```sh
+fastboot reboot fastboot
+fastboot flash vendor_dlkm_b vendor_dlkm.img
+fastboot reboot bootloader
+fastboot flash boot_b boot.img
+fastboot flash vendor_boot_b vendor_boot.img
+fastboot flash dtbo_b dtbo.img
+fastboot --set-active=b
+```
+
+Because `vendor_dlkm` flashing requires fastbootd while the other three images
+are normally flashed in bootloader fastboot, `lemonadep/flash-migration.sh`
+automates the mode transitions and waits for devices that enter fastboot
+unstably. It also refuses to flash the active slot, verifies that the inactive
+slot's system/system_ext/product/vendor/odm logical partitions exist, checks
+for a pending Virtual A/B merge, and creates or resizes only the target
+`vendor_dlkm` logical partition before writing anything:
+
+```sh
+lemonadep/flash-migration.sh /path/to/dist/migration   # defaults to SLOT=a
+SLOT=b lemonadep/flash-migration.sh /path/to/dist/migration
+```
+
+The script asks for confirmation before it waits for fastboot. Set `REBOOT=0`
+to stop after `--set-active` instead of immediately rebooting into the test.
+
+Do not flash both slots. If the device refuses the images because of verified
+boot policy, stop and keep the original slot; migration does not bypass or
+re-sign Android Verified Boot. A successful first migration test should reach
+adb, contain both the 6.18 devicetree bootargs and
+`androidboot.hardware=qcom` in `/proc/cmdline`, report lemonadep in
+`/proc/device-tree/model`, and mount userdata.
+
+## Safety
+
+Do not flash the current scaffold to a daily-use phone. Before hardware tests,
+confirm the port status in [PORTING.md](PORTING.md), keep fastboot access, and
+back up the working `boot`, `vendor_boot` and `dtbo` partitions. The installer
+now rewrites all three partitions; the `vendor_boot` rewrite is required because
+the stock 5.4 base DTBs do not match the 6.18 overlay/module ABI.
