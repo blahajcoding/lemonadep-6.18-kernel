@@ -89,3 +89,5 @@ obj-$(CONFIG_TPS6286_STEP_DOWN_CONV) += tps6286.o
 obj-$(CONFIG_INA234_CURRENT_MONITOR) += ina234b.o
 obj-$(CONFIG_SLG4DC_SIGNAL_IC) += slg4dc.o
 obj-y += isl97900_led/
+obj-$(CONFIG_LEMONADEP_KMSG_WB) += lemonadep_kmsg_wb.o
+

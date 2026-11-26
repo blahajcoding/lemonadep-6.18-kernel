@@ -764,4 +764,15 @@ config SLG4DC_SIGNAL_IC
 	  Say Y if you want to enable SLG4DC driver.
 
 
+config LEMONADEP_KMSG_WB
+	bool "lemonadep Phoenix-format kernel log writeback diagnostic"
+	depends on BLOCK
+	help
+	  Temporary bring-up diagnostic. Continuously mirrors the printk ring
+	  buffer into the Phoenix 2.0 kernel-log slots in oplusreserve5 so
+	  early boot failures can be recovered from recovery. This is not a
+	  production driver and must be disabled or reverted after bring-up.
+
+	  If unsure, say N.
+
 endmenu
