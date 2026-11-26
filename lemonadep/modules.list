@@ -1,3 +1,4 @@
+ioncompat.ko
 adsp_loader_dlkm.ko
 adsp_sleepmon.ko
 altmode-glink.ko
@@ -11,6 +12,8 @@ bcl_soc.ko
 bluetooth.ko
 bolero_cdc_dlkm.ko
 boot_stats.ko
+bq27xxx_battery.ko
+bq27xxx_battery_i2c.ko
 btbcm.ko
 btqca.ko
 bwmon.ko
@@ -203,6 +206,7 @@ qti_amoled_ecm.ko
 qti_cpufreq_cdev.ko
 qti_devfreq_cdev.ko
 qti_pmic_glink.ko
+qti-battery-charger.ko
 qti_qmi_cdev.ko
 qti_qmi_sensor.ko
 qti_thermal_vendor_hooks.ko
@@ -278,3 +282,7 @@ wsa883x_dlkm.ko
 wsa_macro_dlkm.ko
 zram.ko
 zsmalloc.ko
+synaptics_tcm_core.ko
+synaptics_tcm_i2c.ko
+synaptics_tcm_touch.ko
+tristatekey_stub.ko

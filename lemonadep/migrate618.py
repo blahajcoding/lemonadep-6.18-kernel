@@ -101,16 +101,16 @@ def replace_option(args, option, value, required=True):
     return out
 
 
-def append_extra_bootargs(args, extra):
+def append_extra_bootargs(args, extra, option="--cmdline"):
     if not extra:
         return args
     out = list(args)
     for i, arg in enumerate(out[:-1]):
-        if arg == "--cmdline":
+        if arg == option:
             old = out[i + 1].strip()
             out[i + 1] = (old + " " + extra.strip()).strip()
             return out
-    die("--cmdline was not present in the boot image arguments")
+    die(f"{option} was not present in the boot image arguments")
 
 
 def compression_kind(path):
@@ -232,6 +232,19 @@ def unwrap_kernelsu_ramdisk(ramdisk_root):
     return True
 
 
+def install_init_monitor(ramdisk_root, bootmon):
+    init_path = ramdisk_root / "init"
+    init_real = ramdisk_root / "init.real"
+    if not init_path.is_file():
+        die("boot ramdisk lacks /init")
+    if init_real.exists():
+        die("boot ramdisk already has /init.real before monitor installation")
+    shutil.move(str(init_path), str(init_real))
+    shutil.copyfile(bootmon, init_path)
+    init_path.chmod(0o755)
+    init_real.chmod(0o755)
+
+
 def module_key(name):
     return os.path.basename(name).removesuffix(".ko").replace("-", "_")
 
@@ -346,11 +359,12 @@ def make_boot_image(tools_dir, args, kernel, ramdisk, output, extra_bootargs):
     return version
 
 
-def make_vendor_boot_image(tools_dir, args, dtbs, output):
+def make_vendor_boot_image(tools_dir, args, dtbs, output, extra_bootargs=""):
     version = header_version(args)
     if version not in (3, 4):
         die(f"vendor_boot header v{version} is unsupported; expected v3 or v4")
     args = replace_option(args, "--dtb", dtbs, required=False)
+    args = append_extra_bootargs(args, extra_bootargs, "--vendor_cmdline")
     run([sys.executable, tools_dir / "mkbootimg.py", *args, "--vendor_boot", output])
     return version
 
@@ -411,9 +425,11 @@ def main():
     parser.add_argument("--vendor-dtbs", required=True, type=Path)
     parser.add_argument("--dtbo", required=True, type=Path)
     parser.add_argument("--vendor-dlkm", type=Path)
+    parser.add_argument("--bootmon", type=Path)
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--extra-bootargs", default="")
+    parser.add_argument("--extra-vendor-bootargs", default="")
     args = parser.parse_args()
 
     tools = args.tools_dir.resolve()
@@ -423,6 +439,8 @@ def main():
     input_paths = [args.boot, args.vendor_boot, args.kernel, args.vendor_dtbs, args.dtbo]
     if args.vendor_dlkm:
         input_paths.append(args.vendor_dlkm)
+    if args.bootmon:
+        input_paths.append(args.bootmon)
     for path in input_paths:
         if not path.is_file():
             die(f"input does not exist: {path}")
@@ -454,6 +472,8 @@ def main():
     extract_cpio(cpio_file, ramdisk_root)
     original_ramdisk_names = set(cpio_names(cpio_file))
     unwrapped = unwrap_kernelsu_ramdisk(ramdisk_root)
+    if args.bootmon:
+        install_init_monitor(ramdisk_root, args.bootmon.resolve())
     module_target, module_count = install_modules(args.modules_dir.resolve(), ramdisk_root, args.release)
 
     new_cpio = work / "ramdisk-new.cpio"
@@ -466,7 +486,8 @@ def main():
     boot_out = work / "boot.img"
     vendor_out = work / "vendor_boot.img"
     make_boot_image(tools, boot_args, args.kernel.resolve(), new_compressed, boot_out, args.extra_bootargs)
-    make_vendor_boot_image(tools, vendor_args, args.vendor_dtbs.resolve(), vendor_out)
+    make_vendor_boot_image(tools, vendor_args, args.vendor_dtbs.resolve(), vendor_out,
+                           args.extra_vendor_bootargs)
 
     # Repack validation: unpack the outputs again and verify the pieces that
     # must either change or remain byte-for-byte identical.
@@ -487,9 +508,13 @@ def main():
         if arg_value(boot_args, option) != arg_value(check_boot_args, option):
             die(f"repacked boot metadata changed: {option}")
 
-    for option in ("--header_version", "--pagesize", "--vendor_cmdline", "--board", "--dtb_offset"):
+    for option in ("--header_version", "--pagesize", "--board", "--dtb_offset"):
         if arg_value(vendor_args, option) != arg_value(check_vendor_args, option):
             die(f"repacked vendor_boot metadata changed: {option}")
+    original_vendor_cmdline = arg_value(vendor_args, "--vendor_cmdline") or ""
+    expected_vendor_cmdline = (original_vendor_cmdline.strip() + " " + args.extra_vendor_bootargs.strip()).strip()
+    if (arg_value(check_vendor_args, "--vendor_cmdline") or "") != expected_vendor_cmdline:
+        die("repacked vendor_boot cmdline does not match the input cmdline plus EXTRA_VENDOR_BOOTARGS")
     original_bootconfig = vendor_unpack / "bootconfig"
     if original_bootconfig.exists():
         check_bootconfig = vendor_check / "bootconfig"
@@ -538,6 +563,7 @@ def main():
         f"vendor ramdisk fragments preserved: {fragments}",
         f"KernelSU loader unwrapped: {'yes' if unwrapped else 'no'}",
         f"extra bootargs: {args.extra_bootargs if args.extra_bootargs else '(none)'}",
+        f"extra vendor bootargs: {args.extra_vendor_bootargs if args.extra_vendor_bootargs else '(none)'}",
         "",
         "sha256:",
     ]
