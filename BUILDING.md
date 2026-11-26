@@ -117,6 +117,15 @@ JOBS=4 ./build.sh kernel   # lower parallelism
   the modules that disappear with the first-stage boot ramdisk. The image is
   not optional in the migration flow: display, audio, remoteproc, networking
   and WLAN support now live there rather than in the boot ramdisk.
+
+  crDroid's `/vendor/bin/vendor_modprobe.sh` does not consume `modules.load`;
+  it enumerates `/vendor/lib/modules` with `modprobe -l` during early init and
+  probes every non-blocklisted module in parallel. The generated load/depmod
+  files are still correct metadata, but `modules.blocklist` is the practical
+  opt-out mechanism on this userspace. Since crDroid's modem/dsp/bt firmware
+  mounts are not first-stage mounts, ADSP/CDSP/modem firmware timing remains a
+  hardware-test unknown even though the modules themselves now load after the
+  vendor and vendor_dlkm filesystems are mounted.
 - `LemonadepKernel-<version>-lemonadep-<date>.zip`
 
 Do not mix a new `Image` with modules from another kernel sublevel. Rebuild all
