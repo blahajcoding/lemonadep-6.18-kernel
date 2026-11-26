@@ -195,7 +195,7 @@ and vendor ramdisk sizes, two 1 MiB DT slots and their total; treat a total
 above 80 MiB as a warning because the default bootloader memory region is about
 86 MiB.
 
-For example, if the inactive slot is `b`:
+For example, if the inactive slot is `b`, the manual sequence is:
 
 ```sh
 fastboot reboot fastboot
@@ -206,6 +206,22 @@ fastboot flash vendor_boot_b vendor_boot.img
 fastboot flash dtbo_b dtbo.img
 fastboot --set-active=b
 ```
+
+Because `vendor_dlkm` flashing requires fastbootd while the other three images
+are normally flashed in bootloader fastboot, `lemonadep/flash-migration.sh`
+automates the mode transitions and waits for devices that enter fastboot
+unstably. It also refuses to flash the active slot, verifies that the inactive
+slot's system/system_ext/product/vendor/odm logical partitions exist, checks
+for a pending Virtual A/B merge, and creates or resizes only the target
+`vendor_dlkm` logical partition before writing anything:
+
+```sh
+lemonadep/flash-migration.sh /path/to/dist/migration   # defaults to SLOT=a
+SLOT=b lemonadep/flash-migration.sh /path/to/dist/migration
+```
+
+The script asks for confirmation before it waits for fastboot. Set `REBOOT=0`
+to stop after `--set-active` instead of immediately rebooting into the test.
 
 Do not flash both slots. If the device refuses the images because of verified
 boot policy, stop and keep the original slot; migration does not bypass or
