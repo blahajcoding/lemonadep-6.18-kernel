@@ -3193,6 +3193,32 @@ static const struct adsp_data yupik_mpss_resource = {
 	.both_dumps = true,
 };
 
+static const struct adsp_data lahaina_adsp_resource = {
+	.crash_reason_smem = 423,
+	.firmware_name = "adsp.mdt",
+	.pas_id = 1,
+	.minidump_id = 5,
+	.load_state = "adsp",
+	.ssr_name = "lpass",
+	.sysmon_name = "adsp",
+	.ssctl_id = 0x14,
+	.uses_elf64 = true,
+	.auto_boot = true,
+};
+
+static const struct adsp_data lahaina_cdsp_resource = {
+	.crash_reason_smem = 601,
+	.firmware_name = "cdsp.mdt",
+	.pas_id = 18,
+	.minidump_id = 7,
+	.load_state = "cdsp",
+	.ssr_name = "cdsp",
+	.sysmon_name = "cdsp",
+	.ssctl_id = 0x17,
+	.uses_elf64 = true,
+	.auto_boot = true,
+};
+
 static const struct adsp_data yupik_wpss_resource = {
 	.crash_reason_smem = 626,
 	.firmware_name = "wpss.mdt",
@@ -3888,8 +3914,8 @@ static const struct of_device_id adsp_of_match[] = {
 	{ .compatible = "qcom,ravelin-wpss-pas", .data = &ravelin_wpss_resource},
 	{ .compatible = "qcom,scuba-adsp-pas", .data = &scuba_adsp_resource},
 	{ .compatible = "qcom,scuba-modem-pas", .data = &scuba_mpss_resource},
-	{ .compatible = "qcom,lahaina-adsp-pas", .data = &yupik_adsp_resource},
-	{ .compatible = "qcom,lahaina-cdsp-pas", .data = &yupik_cdsp_resource},
+	{ .compatible = "qcom,lahaina-adsp-pas", .data = &lahaina_adsp_resource},
+	{ .compatible = "qcom,lahaina-cdsp-pas", .data = &lahaina_cdsp_resource},
 	{ .compatible = "qcom,lahaina-modem-pas", .data = &yupik_mpss_resource},
 	{ .compatible = "qcom,lahaina-slpi-pas", .data = &lahaina_slpi_resource},
 	{ .compatible = "qcom,bourtzi-wpss-pas", .data = &bourtzi_wpss_resource},
